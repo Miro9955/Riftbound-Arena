@@ -1,6 +1,12 @@
 import type { GameCard } from "../../data/cards";
 import type { AbilityEngine } from "../abilities/AbilityEngine";
-import type { DeckValidationError, GameState, PlayerState, ZoneId } from "../gameState";
+import type {
+  DeckValidationError,
+  DropZoneId,
+  GameState,
+  PlayerState,
+  ZoneId,
+} from "../gameState";
 import { createInitialGameState, emptyZones, TurnPhase } from "../gameState";
 import { CardManager } from "./CardManager";
 import type { GameEvent, GameEventListener } from "./GameEvents";
@@ -282,7 +288,7 @@ export class GameEngine {
     }
   }
 
-  moveCard(cardInstanceId: string, zoneId: ZoneId) {
+  moveCard(cardInstanceId: string, zoneId: DropZoneId) {
     const moved = this.moveCardToZone(cardInstanceId, zoneId);
 
     if (moved) {
@@ -379,7 +385,7 @@ export class GameEngine {
     }
   }
 
-  private moveCardToZone(cardInstanceId: string, zoneId: ZoneId) {
+  private moveCardToZone(cardInstanceId: string, zoneId: DropZoneId) {
     const card = CardManager.findCard(this.state, cardInstanceId);
 
     if (!card) {
@@ -387,7 +393,10 @@ export class GameEngine {
     }
 
     const nextState = ZoneManager.removeCard(this.state, cardInstanceId);
-    this.state = ZoneManager.addCardToZone(nextState, card, zoneId);
+    this.state =
+      zoneId === "hand"
+        ? ZoneManager.addCardToHand(nextState, card)
+        : ZoneManager.addCardToZone(nextState, card, zoneId);
 
     return true;
   }

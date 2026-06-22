@@ -7,6 +7,8 @@ export type ZoneId =
   | "trash"
   | "channeledRunes";
 
+export type DropZoneId = ZoneId | "hand";
+
 export type GameState = {
   hand: GameCard[];
   zones: Record<ZoneId, GameCard[]>;
@@ -85,6 +87,11 @@ export const droppableZoneIds = new Set<ZoneId>([
   "channeledRunes",
 ]);
 
+export const droppableTargetIds = new Set<DropZoneId>([
+  ...droppableZoneIds,
+  "hand",
+]);
+
 export function emptyZones(): Record<ZoneId, GameCard[]> {
   return {
     battlefield1: [],
@@ -131,6 +138,10 @@ export function createInitialGameState(): GameState {
       validationErrors: [],
     },
   };
+}
+
+export function isDropZoneId(value: string): value is DropZoneId {
+  return droppableTargetIds.has(value as DropZoneId);
 }
 
 export function isZoneId(value: string): value is ZoneId {

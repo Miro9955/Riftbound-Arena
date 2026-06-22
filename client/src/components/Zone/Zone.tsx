@@ -1,7 +1,7 @@
 import { useDraggable, useDroppable } from "@dnd-kit/core";
-import type { CSSProperties } from "react";
 import type { GameCard } from "../../data/cards";
 import type { ZoneId } from "../../game/gameState";
+import GameCardView from "../GameCard/GameCard";
 
 type ZoneProps = {
   title: string;
@@ -12,32 +12,21 @@ type ZoneProps = {
 
 function MiniCard({ card }: { card: GameCard }) {
   return (
-    <div className="zone-card-mini" title={card.name}>
-      {card.imageUrl ? (
-        <img src={card.imageUrl} alt={card.name} />
-      ) : (
-        <span>{card.name}</span>
-      )}
+    <div className="zone-card-mini">
+      <GameCardView card={card} />
     </div>
   );
 }
 
 function DraggableZoneCard({ card }: { card: GameCard }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: card.id,
   });
-
-  const style: CSSProperties = {
-    transform: transform
-      ? `translate3d(${transform.x}px, ${transform.y}px, 0)`
-      : undefined,
-  };
 
   return (
     <div
       ref={setNodeRef}
       className={`draggable-card draggable-card-zone ${isDragging ? "is-dragging" : ""}`}
-      style={style}
       {...listeners}
       {...attributes}
     >
@@ -61,7 +50,7 @@ function Zone({ title, className = "", droppableId, cards = [] }: ZoneProps) {
     >
       <span className="zone-label">{title}</span>
       {cards.length > 0 && (
-        <div className="zone-cards">
+        <div className="zone-card-list">
           {cards.map((card) => (
             <DraggableZoneCard key={card.id} card={card} />
           ))}

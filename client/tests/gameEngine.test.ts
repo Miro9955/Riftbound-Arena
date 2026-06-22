@@ -98,6 +98,84 @@ describe("GameEngine", () => {
     ]);
   });
 
+  it("moves a card from hand to channeledRunes", () => {
+    const card = createMockCard({ id: "channel-card" });
+    const engine = createMockEngine({ hand: [card] });
+    const { events } = collectGameEvents(engine);
+
+    engine.moveCard(card.id, "channeledRunes");
+
+    expect(engine.getState().hand).toEqual([]);
+    expect(engine.getState().zones.channeledRunes).toEqual([card]);
+    expect(events).toEqual([
+      {
+        type: "CardMoved",
+        cardInstanceId: card.id,
+        zoneId: "channeledRunes",
+      },
+    ]);
+  });
+
+  it("moves a card from channeledRunes back to hand", () => {
+    const card = createMockCard({ id: "return-rune-card" });
+    const engine = createMockEngine({
+      zones: createZoneState("channeledRunes", [card]),
+    });
+    const { events } = collectGameEvents(engine);
+
+    engine.moveCard(card.id, "hand");
+
+    expect(engine.getState().zones.channeledRunes).toEqual([]);
+    expect(engine.getState().hand).toEqual([card]);
+    expect(events).toEqual([
+      {
+        type: "CardMoved",
+        cardInstanceId: card.id,
+        zoneId: "hand",
+      },
+    ]);
+  });
+
+  it("moves a card from battlefield to hand", () => {
+    const card = createMockCard({ id: "battlefield-return-card" });
+    const engine = createMockEngine({
+      zones: createZoneState("battlefield1", [card]),
+    });
+    const { events } = collectGameEvents(engine);
+
+    engine.moveCard(card.id, "hand");
+
+    expect(engine.getState().zones.battlefield1).toEqual([]);
+    expect(engine.getState().hand).toEqual([card]);
+    expect(events).toEqual([
+      {
+        type: "CardMoved",
+        cardInstanceId: card.id,
+        zoneId: "hand",
+      },
+    ]);
+  });
+
+  it("moves a card from base to hand", () => {
+    const card = createMockCard({ id: "base-return-card" });
+    const engine = createMockEngine({
+      zones: createZoneState("base", [card]),
+    });
+    const { events } = collectGameEvents(engine);
+
+    engine.moveCard(card.id, "hand");
+
+    expect(engine.getState().zones.base).toEqual([]);
+    expect(engine.getState().hand).toEqual([card]);
+    expect(events).toEqual([
+      {
+        type: "CardMoved",
+        cardInstanceId: card.id,
+        zoneId: "hand",
+      },
+    ]);
+  });
+
   it("does not emit movement events for unknown cards", () => {
     const engine = createMockEngine();
     const { events } = collectGameEvents(engine);

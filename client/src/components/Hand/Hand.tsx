@@ -1,4 +1,4 @@
-import { useDraggable } from "@dnd-kit/core";
+import { useDraggable, useDroppable } from "@dnd-kit/core";
 import type { CSSProperties } from "react";
 import type { GameCard as GameCardData } from "../../data/cards";
 import GameCard from "../GameCard/GameCard";
@@ -8,21 +8,35 @@ type HandProps = {
   isLoading: boolean;
 };
 
-function DraggableHandCard({ card }: { card: GameCardData }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+function DraggableHandTrayCard({
+  card,
+  index,
+  total,
+}: {
+  card: GameCardData;
+  index: number;
+  total: number;
+}) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: card.id,
   });
-
-  const style: CSSProperties = {
-    transform: transform
-      ? `translate3d(${transform.x}px, ${transform.y}px, 0)`
-      : undefined,
-  };
+  const center = (total - 1) / 2;
+  const offset = index - center;
+  const maxRotation = total > 7 ? 9 : 12;
+  const rotation = Math.max(-maxRotation, Math.min(maxRotation, offset * 4));
+  const verticalOffset = Math.abs(offset) * 4;
+  const style = {
+    "--card-rotation": `${rotation}deg`,
+    "--card-y": `${verticalOffset}px`,
+    "--card-z": index + 1,
+  } as CSSProperties;
 
   return (
     <div
       ref={setNodeRef}
-      className={`draggable-card draggable-card-hand ${isDragging ? "is-dragging" : ""}`}
+      className={`draggable-card draggable-card-hand hand-tray-card ${
+        isDragging ? "is-dragging" : ""
+      }`}
       style={style}
       {...listeners}
       {...attributes}
@@ -32,16 +46,27 @@ function DraggableHandCard({ card }: { card: GameCardData }) {
   );
 }
 
-function Hand({ cards, isLoading }: HandProps) {
+function HandTray({ cards, isLoading }: HandProps) {
+  const { isOver, setNodeRef } = useDroppable({
+    id: "hand",
+  });
+
   return (
-    <div className="hand">
+    <div ref={setNodeRef} className={`hand hand-tray ${isOver ? "is-over" : ""}`}>
       {isLoading ? (
         <div className="hand-loading">Loading cards...</div>
       ) : (
-        cards.map((card) => <DraggableHandCard key={card.id} card={card} />)
+        cards.map((card, index) => (
+          <DraggableHandTrayCard
+            key={card.id}
+            card={card}
+            index={index}
+            total={cards.length}
+          />
+        ))
       )}
     </div>
   );
 }
 
-export default Hand;
+export default HandTray;
