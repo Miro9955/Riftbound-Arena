@@ -1,0 +1,161 @@
+import type { GameCard } from "../data/cards";
+
+export type ZoneId =
+  | "battlefield1"
+  | "battlefield2"
+  | "base"
+  | "trash"
+  | "channeledRunes";
+
+export type GameState = {
+  hand: GameCard[];
+  zones: Record<ZoneId, GameCard[]>;
+  players: Record<string, PlayerState>;
+  turn: TurnState;
+  setup: SetupState;
+};
+
+export type PlayerState = {
+  deck: GameCard[];
+  runeDeck: GameCard[];
+  hand: GameCard[];
+  trash: GameCard[];
+  banishment: GameCard[];
+  base: GameCard[];
+  championLegend?: GameCard;
+  chosenChampion?: GameCard;
+  setup: PlayerSetupState;
+  hasMulliganed: boolean;
+  hasDrawn: boolean;
+  actionsRemaining: number;
+};
+
+export type PlayerSetupState = {
+  deckValidated: boolean;
+  startingHandDrawn: boolean;
+  mulliganPending: boolean;
+  mulliganCompleted: boolean;
+};
+
+export type SetupStatus =
+  | "NOT_STARTED"
+  | "VALIDATING_DECKS"
+  | "DRAWING_STARTING_HANDS"
+  | "MULLIGAN_PENDING";
+
+export type SetupState = {
+  status: SetupStatus;
+  decksValidated: boolean;
+  firstPlayerId?: string;
+  mulliganPlayerIds: string[];
+  validationErrors: DeckValidationError[];
+};
+
+export type DeckValidationError = {
+  playerId: string;
+  ruleSection: string;
+  code: string;
+  message: string;
+};
+
+export type TurnState = {
+  activePlayerId: string;
+  turnNumber: number;
+  phase: TurnPhase;
+  playerOrder: string[];
+};
+
+export const TurnPhase = {
+  GAME_START: "GAME_START",
+  MULLIGAN: "MULLIGAN",
+  CHOOSE_FIRST_PLAYER: "CHOOSE_FIRST_PLAYER",
+  TURN_START: "TURN_START",
+  DRAW: "DRAW",
+  MAIN: "MAIN",
+  END: "END",
+} as const;
+
+export type TurnPhase = (typeof TurnPhase)[keyof typeof TurnPhase];
+
+export const droppableZoneIds = new Set<ZoneId>([
+  "battlefield1",
+  "battlefield2",
+  "base",
+  "trash",
+  "channeledRunes",
+]);
+
+export function emptyZones(): Record<ZoneId, GameCard[]> {
+  return {
+    battlefield1: [],
+    battlefield2: [],
+    base: [],
+    trash: [],
+    channeledRunes: [],
+  };
+}
+
+export function createInitialGameState(): GameState {
+  return {
+    hand: [],
+    zones: emptyZones(),
+    players: {
+      player1: {
+        deck: [],
+        runeDeck: [],
+        hand: [],
+        trash: [],
+        banishment: [],
+        base: [],
+        setup: {
+          deckValidated: false,
+          startingHandDrawn: false,
+          mulliganPending: false,
+          mulliganCompleted: false,
+        },
+        hasMulliganed: false,
+        hasDrawn: false,
+        actionsRemaining: 1,
+      },
+    },
+    turn: {
+      activePlayerId: "player1",
+      turnNumber: 1,
+      phase: TurnPhase.GAME_START,
+      playerOrder: ["player1"],
+    },
+    setup: {
+      status: "NOT_STARTED",
+      decksValidated: false,
+      mulliganPlayerIds: [],
+      validationErrors: [],
+    },
+  };
+}
+
+export function isZoneId(value: string): value is ZoneId {
+  return droppableZoneIds.has(value as ZoneId);
+}
+
+export function removeCardFromState(state: GameState, cardId: string): GameState {
+  return {
+    ...state,
+    hand: state.hand.filter((card) => card.id !== cardId),
+    zones: {
+      battlefield1: state.zones.battlefield1.filter((card) => card.id !== cardId),
+      battlefield2: state.zones.battlefield2.filter((card) => card.id !== cardId),
+      base: state.zones.base.filter((card) => card.id !== cardId),
+      trash: state.zones.trash.filter((card) => card.id !== cardId),
+      channeledRunes: state.zones.channeledRunes.filter((card) => card.id !== cardId),
+    },
+  };
+}
+
+export function findCard(state: GameState, cardId: string) {
+  return (
+    state.hand.find((card) => card.id === cardId) ??
+    Object.values(state.zones)
+      .flat()
+      .find((card) => card.id === cardId)
+  );
+}
