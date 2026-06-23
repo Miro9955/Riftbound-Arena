@@ -58,6 +58,11 @@ export type MoveUnitValidationResult = {
   errors: string[];
 };
 
+export type AttackValidationResult = {
+  ok: boolean;
+  errors: string[];
+};
+
 export class GameEngine {
   private state: GameState;
 
@@ -91,6 +96,8 @@ export class GameEngine {
       hand: cards,
       zones: ZoneManager.createEmptyZones(),
       battlefields: ZoneManager.createEmptyBattlefields(),
+      unitDamage: {},
+      exhaustedUnitIds: [],
     };
   }
 
@@ -226,6 +233,8 @@ export class GameEngine {
       hand: players[firstPlayerId]?.hand ?? [],
       zones: emptyZones(),
       battlefields: emptyBattlefields(),
+      unitDamage: {},
+      exhaustedUnitIds: [],
       players,
       turn: {
         activePlayerId: firstPlayerId,
@@ -1042,6 +1051,209 @@ export class GameEngine {
     return controllerId;
   }
 
+  canAttack(
+    playerId: string,
+    attackerCardInstanceId: string,
+    targetBattlefieldId: BattlefieldId,
+  ) {
+    return this.validateAttack(
+      playerId,
+      attackerCardInstanceId,
+      targetBattlefieldId,
+    ).ok;
+  }
+
+  validateAttack(
+    playerId: string,
+    attackerCardInstanceId: string,
+    targetBattlefieldId: BattlefieldId,
+  ): AttackValidationResult {
+    const player = this.state.players[playerId];
+    const attacker = this.findControlledUnit(playerId, attackerCardInstanceId);
+    const errors: string[] = [];
+
+    if (!player) {
+      errors.push("Unknown player.");
+    }
+
+    // Core Rules 437-444: combat is declared with controlled units; this foundation only validates the attacking unit.
+    if (!attacker) {
+      errors.push("Attacker must be controlled by the player.");
+    } else if (attacker.kind !== "unit") {
+      errors.push("Only unit cards can attack.");
+    }
+
+    // Core Rules 316 and 437-444: attacks/combat are action-phase operations in the current simplified MAIN phase.
+    if (this.state.turn.activePlayerId !== playerId) {
+      errors.push("Only the active player can attack.");
+    }
+
+    if (this.state.turn.phase !== TurnPhase.MAIN) {
+      errors.push("Attacks can only be declared during the main phase.");
+    }
+
+    if (!isBattlefieldId(targetBattlefieldId)) {
+      errors.push("Attack target must be a battlefield.");
+    }
+
+    // Core Rules 401-402 and 437-444: exhausted units cannot be used to attack again.
+    if (this.state.exhaustedUnitIds.includes(attackerCardInstanceId)) {
+      errors.push("Exhausted units cannot attack.");
+    }
+
+    // TODO(Core Rules 437-444): validate full attack legality, defenders, staged combat/showdown, and multiplayer restrictions once combat steps exist.
+    return {
+      ok: errors.length === 0,
+      errors,
+    };
+  }
+
+  declareAttack(
+    playerId: string,
+    attackerCardInstanceId: string,
+    targetBattlefieldId: BattlefieldId,
+  ) {
+    const validation = this.validateAttack(
+      playerId,
+      attackerCardInstanceId,
+      targetBattlefieldId,
+    );
+
+    if (!validation.ok) {
+      return false;
+    }
+
+    // Core Rules 401-402 and 437-444: declaring an attacker marks/exhausts it for this foundation.
+    this.state = {
+      ...this.state,
+      exhaustedUnitIds: [
+        ...this.state.exhaustedUnitIds,
+        attackerCardInstanceId,
+      ],
+    };
+
+    this.emit({
+      type: "AttackDeclared",
+      playerId,
+      attackerCardInstanceId,
+      targetBattlefieldId,
+    });
+    this.emit({
+      type: "UnitExhausted",
+      playerId,
+      cardInstanceId: attackerCardInstanceId,
+    });
+
+    return true;
+  }
+
+  dealDamage(sourceCardInstanceId: string, targetCardInstanceId: string, amount: number) {
+    const target = this.findUnitOnBoard(targetCardInstanceId);
+
+    if (!target || amount <= 0) {
+      return false;
+    }
+
+    const nextDamage = (this.state.unitDamage[targetCardInstanceId] ?? 0) + amount;
+
+    // Core Rules 141-142 and 404-405: damage is marked on units.
+    this.state = {
+      ...this.state,
+      unitDamage: {
+        ...this.state.unitDamage,
+        [targetCardInstanceId]: nextDamage,
+      },
+    };
+
+    this.emit({
+      type: "DamageDealt",
+      sourceCardInstanceId,
+      targetCardInstanceId,
+      amount,
+    });
+
+    // Core Rules 322 and 404-405: lethal damage destroys/kills a unit during cleanup; this foundation resolves it immediately.
+    // TODO(Core Rules 318-323, 437-444): move lethal checks into official cleanup/combat resolution when cleanup exists.
+    if (nextDamage >= target.health) {
+      this.destroyUnit(targetCardInstanceId);
+    }
+
+    return true;
+  }
+
+  destroyUnit(cardInstanceId: string) {
+    const unit = this.findUnitOnBoard(cardInstanceId);
+    const controllerId = this.findUnitController(cardInstanceId);
+    const fromZoneId = this.findUnitZone(cardInstanceId);
+
+    if (!unit || !controllerId || !fromZoneId) {
+      return false;
+    }
+
+    const battlefieldId = isBattlefieldId(fromZoneId) ? fromZoneId : undefined;
+    const nextZones = {
+      ...this.state.zones,
+      [fromZoneId]: this.state.zones[fromZoneId].filter(
+        (card) => card.id !== cardInstanceId,
+      ),
+      trash: [...this.state.zones.trash, unit],
+    };
+    const nextBattlefields = battlefieldId
+      ? {
+          ...this.state.battlefields,
+          [battlefieldId]: {
+            ...this.state.battlefields[battlefieldId],
+            unitControllers: Object.fromEntries(
+              Object.entries(
+                this.state.battlefields[battlefieldId].unitControllers,
+              ).filter(([unitId]) => unitId !== cardInstanceId),
+            ),
+          },
+        }
+      : this.state.battlefields;
+    const {
+      [cardInstanceId]: _removedDamage,
+      ...nextUnitDamage
+    } = this.state.unitDamage;
+
+    // Core Rules 141-142, 415, and 322: destroyed units leave the battlefield/base and go to trash.
+    // TODO(Core Rules 126): route to owner trash once owner tracking is separate from controller tracking.
+    this.state = {
+      ...this.state,
+      zones: nextZones,
+      battlefields: nextBattlefields,
+      unitDamage: nextUnitDamage,
+      exhaustedUnitIds: this.state.exhaustedUnitIds.filter(
+        (unitId) => unitId !== cardInstanceId,
+      ),
+      players: {
+        ...this.state.players,
+        [controllerId]: {
+          ...this.state.players[controllerId],
+          base:
+            fromZoneId === "base"
+              ? this.state.players[controllerId].base.filter(
+                  (card) => card.id !== cardInstanceId,
+                )
+              : this.state.players[controllerId].base,
+          trash: [...this.state.players[controllerId].trash, unit],
+        },
+      },
+    };
+
+    this.emit({
+      type: "UnitDestroyed",
+      cardInstanceId,
+      playerId: controllerId,
+    });
+
+    if (battlefieldId) {
+      this.updateBattlefieldControl(battlefieldId);
+    }
+
+    return true;
+  }
+
   moveCard(cardInstanceId: string, zoneId: DropZoneId) {
     const moved = this.moveCardToZone(cardInstanceId, zoneId);
 
@@ -1260,6 +1472,38 @@ export class GameEngine {
         return this.state.zones[battlefieldId].find(
           (card) => card.id === cardInstanceId,
         );
+      }
+    }
+
+    return undefined;
+  }
+
+  private findUnitOnBoard(cardInstanceId: string) {
+    return (
+      this.state.zones.base.find(
+        (card) => card.id === cardInstanceId && card.kind === "unit",
+      ) ??
+      (Object.keys(this.state.battlefields) as BattlefieldId[])
+        .flatMap((battlefieldId) => this.state.zones[battlefieldId])
+        .find((card) => card.id === cardInstanceId && card.kind === "unit")
+    );
+  }
+
+  private findUnitController(cardInstanceId: string) {
+    for (const [playerId, player] of Object.entries(this.state.players)) {
+      if (player.base.some((card) => card.id === cardInstanceId)) {
+        return playerId;
+      }
+    }
+
+    for (const battlefieldId of Object.keys(
+      this.state.battlefields,
+    ) as BattlefieldId[]) {
+      const controllerId =
+        this.state.battlefields[battlefieldId].unitControllers[cardInstanceId];
+
+      if (controllerId) {
+        return controllerId;
       }
     }
 

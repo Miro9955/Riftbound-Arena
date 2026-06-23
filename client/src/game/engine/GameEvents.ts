@@ -40,6 +40,32 @@ export type BattlefieldControlChanged = {
   controllerId?: string;
 };
 
+export type AttackDeclared = {
+  type: "AttackDeclared";
+  playerId: string;
+  attackerCardInstanceId: string;
+  targetBattlefieldId: BattlefieldId;
+};
+
+export type DamageDealt = {
+  type: "DamageDealt";
+  sourceCardInstanceId: string;
+  targetCardInstanceId: string;
+  amount: number;
+};
+
+export type UnitDestroyed = {
+  type: "UnitDestroyed";
+  cardInstanceId: string;
+  playerId: string;
+};
+
+export type UnitExhausted = {
+  type: "UnitExhausted";
+  cardInstanceId: string;
+  playerId: string;
+};
+
 export type CardDiscarded = {
   type: "CardDiscarded";
   cardInstanceId: string;
@@ -160,6 +186,10 @@ export type GameEvent =
   | CardPlayed
   | UnitMoved
   | BattlefieldControlChanged
+  | AttackDeclared
+  | DamageDealt
+  | UnitDestroyed
+  | UnitExhausted
   | CardDiscarded
   | TurnEnded
   | TurnStarted

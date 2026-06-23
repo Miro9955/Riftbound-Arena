@@ -455,6 +455,217 @@ describe("GameEngine", () => {
     expect(engine.getBattlefieldController("battlefield1")).toBe("player1");
   });
 
+  it("declares a legal attack and exhausts the attacker", () => {
+    const attacker = createMockCard({ id: "legal-attacker", kind: "unit" });
+    const engine = createMockEngine({
+      zones: createZoneState("battlefield1", [attacker]),
+      battlefields: {
+        battlefield1: {
+          controllerId: "player1",
+          unitControllers: {
+            [attacker.id]: "player1",
+          },
+        },
+      },
+      players: {
+        player1: createMockPlayer(),
+      },
+      turn: {
+        activePlayerId: "player1",
+        turnNumber: 1,
+        phase: TurnPhase.MAIN,
+        playerOrder: ["player1"],
+      },
+    });
+    const { events } = collectGameEvents(engine);
+
+    expect(engine.canAttack("player1", attacker.id, "battlefield1")).toBe(true);
+    expect(engine.declareAttack("player1", attacker.id, "battlefield1")).toBe(true);
+
+    expect(engine.getState().exhaustedUnitIds).toEqual([attacker.id]);
+    expect(events).toEqual([
+      {
+        type: "AttackDeclared",
+        playerId: "player1",
+        attackerCardInstanceId: attacker.id,
+        targetBattlefieldId: "battlefield1",
+      },
+      {
+        type: "UnitExhausted",
+        playerId: "player1",
+        cardInstanceId: attacker.id,
+      },
+    ]);
+  });
+
+  it("does not attack with a non-unit", () => {
+    const gear = createMockCard({ id: "gear-attacker", kind: "gear" });
+    const engine = createMockEngine({
+      zones: createZoneState("base", [gear]),
+      players: {
+        player1: createMockPlayer({ base: [gear] }),
+      },
+      turn: {
+        activePlayerId: "player1",
+        turnNumber: 1,
+        phase: TurnPhase.MAIN,
+        playerOrder: ["player1"],
+      },
+    });
+
+    expect(engine.validateAttack("player1", gear.id, "battlefield1").errors).toContain(
+      "Only unit cards can attack.",
+    );
+    expect(engine.declareAttack("player1", gear.id, "battlefield1")).toBe(false);
+  });
+
+  it("does not attack with an opponent unit", () => {
+    const attacker = createMockCard({ id: "opponent-attacker", kind: "unit" });
+    const engine = createMockEngine({
+      zones: createZoneState("battlefield1", [attacker]),
+      battlefields: {
+        battlefield1: {
+          controllerId: "player2",
+          unitControllers: {
+            [attacker.id]: "player2",
+          },
+        },
+      },
+      players: {
+        player1: createMockPlayer(),
+        player2: createMockPlayer(),
+      },
+      turn: {
+        activePlayerId: "player1",
+        turnNumber: 1,
+        phase: TurnPhase.MAIN,
+        playerOrder: ["player1", "player2"],
+      },
+    });
+
+    expect(
+      engine.validateAttack("player1", attacker.id, "battlefield1").errors,
+    ).toContain("Attacker must be controlled by the player.");
+    expect(engine.declareAttack("player1", attacker.id, "battlefield1")).toBe(false);
+  });
+
+  it("does not attack outside the allowed phase", () => {
+    const attacker = createMockCard({ id: "phase-attacker", kind: "unit" });
+    const engine = createMockEngine({
+      zones: createZoneState("battlefield1", [attacker]),
+      battlefields: {
+        battlefield1: {
+          controllerId: "player1",
+          unitControllers: {
+            [attacker.id]: "player1",
+          },
+        },
+      },
+      players: {
+        player1: createMockPlayer(),
+      },
+      turn: {
+        activePlayerId: "player1",
+        turnNumber: 1,
+        phase: TurnPhase.DRAW,
+        playerOrder: ["player1"],
+      },
+    });
+
+    expect(
+      engine.validateAttack("player1", attacker.id, "battlefield1").errors,
+    ).toContain("Attacks can only be declared during the main phase.");
+    expect(engine.declareAttack("player1", attacker.id, "battlefield1")).toBe(false);
+  });
+
+  it("deals damage to a unit", () => {
+    const source = createMockCard({ id: "damage-source", kind: "unit" });
+    const target = createMockCard({
+      id: "damage-target",
+      kind: "unit",
+      health: 4,
+    });
+    const engine = createMockEngine({
+      zones: createZoneState("battlefield1", [source, target]),
+      battlefields: {
+        battlefield1: {
+          unitControllers: {
+            [source.id]: "player1",
+            [target.id]: "player2",
+          },
+        },
+      },
+      players: {
+        player1: createMockPlayer(),
+        player2: createMockPlayer(),
+      },
+    });
+    const { events } = collectGameEvents(engine);
+
+    expect(engine.dealDamage(source.id, target.id, 2)).toBe(true);
+
+    expect(engine.getState().unitDamage[target.id]).toBe(2);
+    expect(events).toEqual([
+      {
+        type: "DamageDealt",
+        sourceCardInstanceId: source.id,
+        targetCardInstanceId: target.id,
+        amount: 2,
+      },
+    ]);
+  });
+
+  it("moves a destroyed unit to trash and emits combat events", () => {
+    const source = createMockCard({ id: "lethal-source", kind: "unit" });
+    const target = createMockCard({
+      id: "lethal-target",
+      kind: "unit",
+      health: 2,
+    });
+    const engine = createMockEngine({
+      zones: createZoneState("battlefield1", [source, target]),
+      battlefields: {
+        battlefield1: {
+          unitControllers: {
+            [source.id]: "player1",
+            [target.id]: "player2",
+          },
+        },
+      },
+      players: {
+        player1: createMockPlayer(),
+        player2: createMockPlayer(),
+      },
+    });
+    const { events } = collectGameEvents(engine);
+
+    expect(engine.dealDamage(source.id, target.id, 2)).toBe(true);
+
+    expect(engine.getState().zones.battlefield1).toEqual([source]);
+    expect(engine.getState().zones.trash).toEqual([target]);
+    expect(engine.getState().players.player2.trash).toEqual([target]);
+    expect(engine.getState().unitDamage[target.id]).toBeUndefined();
+    expect(events).toEqual([
+      {
+        type: "DamageDealt",
+        sourceCardInstanceId: source.id,
+        targetCardInstanceId: target.id,
+        amount: 2,
+      },
+      {
+        type: "UnitDestroyed",
+        cardInstanceId: target.id,
+        playerId: "player2",
+      },
+      {
+        type: "BattlefieldControlChanged",
+        battlefieldId: "battlefield1",
+        previousControllerId: undefined,
+        controllerId: "player1",
+      },
+    ]);
+  });
+
   it("moves a card between zones", () => {
     const card = createMockCard({ id: "movable-card" });
     const engine = createMockEngine({

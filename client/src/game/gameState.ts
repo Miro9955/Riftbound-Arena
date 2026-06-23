@@ -14,6 +14,8 @@ export type GameState = {
   hand: GameCard[];
   zones: Record<ZoneId, GameCard[]>;
   battlefields: Record<BattlefieldId, BattlefieldState>;
+  unitDamage: Record<string, number>;
+  exhaustedUnitIds: string[];
   players: Record<string, PlayerState>;
   turn: TurnState;
   setup: SetupState;
@@ -144,6 +146,8 @@ export function createInitialGameState(): GameState {
     hand: [],
     zones: emptyZones(),
     battlefields: emptyBattlefields(),
+    unitDamage: {},
+    exhaustedUnitIds: [],
     players: {
       player1: {
         deck: [],

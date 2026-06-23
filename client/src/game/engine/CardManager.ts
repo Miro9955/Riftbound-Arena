@@ -18,6 +18,8 @@ export class CardManager {
   ): GameState {
     return {
       ...state,
+      unitDamage: state.unitDamage,
+      exhaustedUnitIds: state.exhaustedUnitIds,
       players: {
         ...state.players,
         [playerId]: {
