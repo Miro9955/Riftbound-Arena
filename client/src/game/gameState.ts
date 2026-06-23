@@ -50,6 +50,10 @@ export type SetupState = {
   decksValidated: boolean;
   firstPlayerId?: string;
   mulliganPlayerIds: string[];
+  currentMulliganPlayerId?: string;
+  completedMulliganPlayerIds: string[];
+  mulliganSetAsideCards: Record<string, GameCard[]>;
+  mulliganComplete: boolean;
   validationErrors: DeckValidationError[];
 };
 
@@ -135,6 +139,9 @@ export function createInitialGameState(): GameState {
       status: "NOT_STARTED",
       decksValidated: false,
       mulliganPlayerIds: [],
+      completedMulliganPlayerIds: [],
+      mulliganSetAsideCards: {},
+      mulliganComplete: false,
       validationErrors: [],
     },
   };

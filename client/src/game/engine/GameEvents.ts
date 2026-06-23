@@ -77,6 +77,23 @@ export type MulliganStarted = {
   playerIds: string[];
 };
 
+export type CardsSetAsideForMulligan = {
+  type: "CardsSetAsideForMulligan";
+  playerId: string;
+  cards: GameCard[];
+};
+
+export type CardsRecycled = {
+  type: "CardsRecycled";
+  playerId: string;
+  cards: GameCard[];
+};
+
+export type MulliganCompleted = {
+  type: "MulliganCompleted";
+  playerId: string;
+};
+
 export type GameEvent =
   | CardDrawn
   | CardMoved
@@ -90,6 +107,9 @@ export type GameEvent =
   | DeckShuffled
   | TurnOrderDetermined
   | StartingHandDrawn
-  | MulliganStarted;
+  | MulliganStarted
+  | CardsSetAsideForMulligan
+  | CardsRecycled
+  | MulliganCompleted;
 
 export type GameEventListener = (event: GameEvent) => void;

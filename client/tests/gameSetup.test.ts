@@ -322,6 +322,10 @@ describe("Game setup rules", () => {
       decksValidated: true,
       firstPlayerId: "player2",
       mulliganPlayerIds: ["player2", "player1"],
+      currentMulliganPlayerId: "player2",
+      completedMulliganPlayerIds: [],
+      mulliganSetAsideCards: {},
+      mulliganComplete: false,
       validationErrors: [],
     });
     expect(engine.getState().players.player1.hand).toHaveLength(4);
@@ -358,6 +362,203 @@ describe("Game setup rules", () => {
       "TurnOrderDetermined",
       "MulliganStarted",
     ]);
+  });
+
+  it("allows a player to mulligan 0 cards", () => {
+    const engine = new GameEngine();
+
+    engine.startGameSetup({
+      players: [createPlayerSetup()],
+      rng: () => 0,
+    });
+
+    const startingHandIds = engine
+      .getState()
+      .players.player1.hand.map((card) => card.id);
+
+    engine.chooseMulliganCards("player1", []);
+    engine.resolveMulligan("player1");
+
+    expect(engine.getState().players.player1.hand.map((card) => card.id)).toEqual(
+      startingHandIds,
+    );
+    expect(engine.getState().players.player1.deck).toHaveLength(36);
+    expect(engine.getState().players.player1.setup.mulliganCompleted).toBe(true);
+  });
+
+  it("allows a player to mulligan 1 card", () => {
+    const engine = new GameEngine();
+
+    engine.startGameSetup({
+      players: [createPlayerSetup()],
+      rng: () => 0,
+    });
+
+    const selectedCard = engine.getState().players.player1.hand[0];
+    const replacementCard = engine.getState().players.player1.deck[0];
+
+    engine.chooseMulliganCards("player1", [selectedCard.id]);
+    engine.resolveMulligan("player1");
+
+    const player = engine.getState().players.player1;
+
+    expect(player.hand).toHaveLength(4);
+    expect(player.hand).toContainEqual(replacementCard);
+    expect(player.hand).not.toContainEqual(selectedCard);
+    expect(player.deck.at(-1)).toEqual(selectedCard);
+  });
+
+  it("allows a player to mulligan 2 cards", () => {
+    const engine = new GameEngine();
+
+    engine.startGameSetup({
+      players: [createPlayerSetup()],
+      rng: () => 0,
+    });
+
+    const selectedCards = engine.getState().players.player1.hand.slice(0, 2);
+    const replacementCards = engine.getState().players.player1.deck.slice(0, 2);
+
+    engine.chooseMulliganCards(
+      "player1",
+      selectedCards.map((card) => card.id),
+    );
+    engine.resolveMulligan("player1");
+
+    const player = engine.getState().players.player1;
+
+    expect(player.hand).toHaveLength(4);
+    expect(player.hand).toEqual(expect.arrayContaining(replacementCards));
+    expect(player.hand).not.toEqual(expect.arrayContaining(selectedCards));
+    expect(player.deck.slice(-2)).toEqual(selectedCards);
+  });
+
+  it("does not allow a player to mulligan 3 cards", () => {
+    const engine = new GameEngine();
+
+    engine.startGameSetup({
+      players: [createPlayerSetup()],
+      rng: () => 0,
+    });
+
+    const selectedCardIds = engine
+      .getState()
+      .players.player1.hand.slice(0, 3)
+      .map((card) => card.id);
+
+    expect(() => {
+      engine.chooseMulliganCards("player1", selectedCardIds);
+    }).toThrow("A player may not choose more than 2 cards for mulligan.");
+
+    expect(engine.getState().setup.mulliganSetAsideCards.player1).toBeUndefined();
+  });
+
+  it("draws replacement cards before recycling set-aside cards", () => {
+    const engine = new GameEngine();
+    const { events } = collectGameEvents(engine);
+
+    engine.startGameSetup({
+      players: [createPlayerSetup()],
+      rng: () => 0,
+    });
+
+    const selectedCard = engine.getState().players.player1.hand[0];
+    const replacementCard = engine.getState().players.player1.deck[0];
+
+    engine.chooseMulliganCards("player1", [selectedCard.id]);
+    engine.resolveMulligan("player1");
+
+    const drawEventIndex = events.findIndex(
+      (event) => event.type === "CardDrawn" && event.card.id === replacementCard.id,
+    );
+    const recycleEventIndex = events.findIndex(
+      (event) => event.type === "CardsRecycled",
+    );
+
+    expect(drawEventIndex).toBeGreaterThan(-1);
+    expect(recycleEventIndex).toBeGreaterThan(drawEventIndex);
+    expect(engine.getState().players.player1.hand).toContainEqual(replacementCard);
+    expect(engine.getState().players.player1.deck.at(-1)).toEqual(selectedCard);
+  });
+
+  it("proceeds through mulligan decisions in turn order", () => {
+    const engine = new GameEngine();
+    const player1 = createPlayerSetup();
+    const player2 = createPlayerSetup({
+      playerId: "player2",
+      championLegend: createChampionLegend({
+        id: "legend-jinx",
+        name: "Jinx Legend",
+        domains: ["Fury"],
+        tags: ["Jinx"],
+      }),
+      chosenChampion: createChosenChampion({
+        id: "chosen-jinx",
+        name: "Jinx",
+        domains: ["Fury"],
+        tags: ["Jinx"],
+      }),
+      mainDeck: createMainDeck(40, { id: "p2-main", domains: ["Fury"] }),
+      runeDeck: createRuneDeck(12, { id: "p2-rune", domains: ["Fury"] }),
+    });
+
+    engine.startGameSetup({
+      players: [player1, player2],
+      firstPlayerId: "player2",
+      rng: () => 0,
+    });
+
+    expect(engine.getState().setup.currentMulliganPlayerId).toBe("player2");
+    expect(() => {
+      engine.chooseMulliganCards("player1", []);
+    }).toThrow("Mulligan decisions must proceed in turn order.");
+
+    engine.chooseMulliganCards("player2", []);
+    engine.resolveMulligan("player2");
+
+    expect(engine.getState().setup.currentMulliganPlayerId).toBe("player1");
+  });
+
+  it("completes mulligan when all players are done", () => {
+    const engine = new GameEngine();
+    const player1 = createPlayerSetup();
+    const player2 = createPlayerSetup({
+      playerId: "player2",
+      championLegend: createChampionLegend({
+        id: "legend-jinx",
+        name: "Jinx Legend",
+        domains: ["Fury"],
+        tags: ["Jinx"],
+      }),
+      chosenChampion: createChosenChampion({
+        id: "chosen-jinx",
+        name: "Jinx",
+        domains: ["Fury"],
+        tags: ["Jinx"],
+      }),
+      mainDeck: createMainDeck(40, { id: "p2-main", domains: ["Fury"] }),
+      runeDeck: createRuneDeck(12, { id: "p2-rune", domains: ["Fury"] }),
+    });
+
+    engine.startGameSetup({
+      players: [player1, player2],
+      firstPlayerId: "player2",
+      rng: () => 0,
+    });
+
+    engine.chooseMulliganCards("player2", []);
+    engine.resolveMulligan("player2");
+    engine.chooseMulliganCards("player1", []);
+    engine.resolveMulligan("player1");
+
+    expect(engine.getState().setup.currentMulliganPlayerId).toBeUndefined();
+    expect(engine.getState().setup.completedMulliganPlayerIds).toEqual([
+      "player2",
+      "player1",
+    ]);
+    expect(engine.getState().setup.mulliganComplete).toBe(true);
+    expect(engine.getState().players.player1.hasMulliganed).toBe(true);
+    expect(engine.getState().players.player2.hasMulliganed).toBe(true);
   });
 
   it("rejects setup before mutating into a started setup state", () => {

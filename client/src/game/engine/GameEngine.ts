@@ -213,6 +213,10 @@ export class GameEngine {
         decksValidated: true,
         firstPlayerId,
         mulliganPlayerIds: playerOrder,
+        currentMulliganPlayerId: undefined,
+        completedMulliganPlayerIds: [],
+        mulliganSetAsideCards: {},
+        mulliganComplete: false,
         validationErrors: [],
       },
     };
@@ -250,14 +254,205 @@ export class GameEngine {
       playerOrder,
       firstPlayerId,
     });
-    this.emit({
-      type: "MulliganStarted",
-      playerIds: playerOrder,
-    });
+    this.beginMulligan();
 
     return {
       ok: true,
       errors: [],
+    };
+  }
+
+  beginMulligan() {
+    const currentMulliganPlayerId =
+      this.state.setup.currentMulliganPlayerId ??
+      this.state.setup.mulliganPlayerIds.find(
+        (playerId) =>
+          !this.state.setup.completedMulliganPlayerIds.includes(playerId),
+      );
+
+    this.state = {
+      ...this.state,
+      hand: currentMulliganPlayerId
+        ? this.state.players[currentMulliganPlayerId]?.hand ?? []
+        : this.state.hand,
+      turn: {
+        ...this.state.turn,
+        activePlayerId: currentMulliganPlayerId ?? this.state.turn.activePlayerId,
+        phase: TurnPhase.MULLIGAN,
+      },
+      setup: {
+        ...this.state.setup,
+        status: "MULLIGAN_PENDING",
+        currentMulliganPlayerId,
+        mulliganComplete: currentMulliganPlayerId === undefined,
+      },
+    };
+
+    this.emit({
+      type: "MulliganStarted",
+      playerIds: this.state.setup.mulliganPlayerIds,
+    });
+  }
+
+  chooseMulliganCards(playerId: string, cardInstanceIds: string[]) {
+    const player = this.requireCurrentMulliganPlayer(playerId);
+    const uniqueCardInstanceIds = [...new Set(cardInstanceIds)];
+
+    // Core Rules 117-117.3: a player may set aside up to two starting-hand cards for mulligan.
+    if (uniqueCardInstanceIds.length > 2) {
+      throw new Error("A player may not choose more than 2 cards for mulligan.");
+    }
+
+    const previouslySetAside = this.state.setup.mulliganSetAsideCards[playerId] ?? [];
+    const handWithPreviousChoices = [...player.hand, ...previouslySetAside];
+    const cardsById = new Map(handWithPreviousChoices.map((card) => [card.id, card]));
+    const selectedCards = uniqueCardInstanceIds.map((cardInstanceId) => {
+      const card = cardsById.get(cardInstanceId);
+
+      if (!card) {
+        throw new Error("Mulligan cards must come from the player's starting hand.");
+      }
+
+      return card;
+    });
+    const selectedCardIds = new Set(uniqueCardInstanceIds);
+    const nextHand = handWithPreviousChoices.filter(
+      (card) => !selectedCardIds.has(card.id),
+    );
+
+    this.state = {
+      ...this.state,
+      hand: playerId === this.state.turn.activePlayerId ? nextHand : this.state.hand,
+      players: {
+        ...this.state.players,
+        [playerId]: {
+          ...player,
+          hand: nextHand,
+        },
+      },
+      setup: {
+        ...this.state.setup,
+        mulliganSetAsideCards: {
+          ...this.state.setup.mulliganSetAsideCards,
+          [playerId]: selectedCards,
+        },
+      },
+    };
+
+    this.emit({
+      type: "CardsSetAsideForMulligan",
+      playerId,
+      cards: selectedCards,
+    });
+  }
+
+  resolveMulligan(playerId: string) {
+    const player = this.requireCurrentMulliganPlayer(playerId);
+    const setAsideCards = this.state.setup.mulliganSetAsideCards[playerId] ?? [];
+    const drawnCards: GameCard[] = [];
+
+    // Core Rules 117-117.3: draw replacements before the set-aside cards are recycled.
+    for (let index = 0; index < setAsideCards.length; index += 1) {
+      const drawingPlayer = this.state.players[playerId];
+      const [card, ...deck] = drawingPlayer.deck;
+
+      if (card) {
+        this.state = {
+          ...this.state,
+          hand:
+            playerId === this.state.turn.activePlayerId
+              ? [...this.state.hand, card]
+              : this.state.hand,
+          players: {
+            ...this.state.players,
+            [playerId]: {
+              ...drawingPlayer,
+              hand: [...drawingPlayer.hand, card],
+              deck,
+            },
+          },
+        };
+        drawnCards.push(card);
+        this.emit({
+          type: "CardDrawn",
+          playerId,
+          card,
+        });
+      }
+    }
+
+    const playerAfterDraw = this.state.players[playerId] ?? player;
+
+    // Core Rules 117.3 and 403: after replacement draw, recycled main-deck cards return to the deck.
+    // TODO(Core Rules 403): add deterministic simultaneous recycle ordering when the command log/RNG model exists.
+    this.state = {
+      ...this.state,
+      players: {
+        ...this.state.players,
+        [playerId]: {
+          ...playerAfterDraw,
+          deck: [...playerAfterDraw.deck, ...setAsideCards],
+          setup: {
+            ...playerAfterDraw.setup,
+            mulliganPending: false,
+            mulliganCompleted: true,
+          },
+          hasMulliganed: true,
+        },
+      },
+      setup: {
+        ...this.state.setup,
+        completedMulliganPlayerIds: [
+          ...this.state.setup.completedMulliganPlayerIds,
+          playerId,
+        ],
+        mulliganSetAsideCards: {
+          ...this.state.setup.mulliganSetAsideCards,
+          [playerId]: [],
+        },
+      },
+    };
+
+    if (setAsideCards.length > 0) {
+      this.emit({
+        type: "CardsRecycled",
+        playerId,
+        cards: setAsideCards,
+      });
+    }
+
+    this.emit({
+      type: "MulliganCompleted",
+      playerId,
+    });
+
+    this.advanceMulliganPlayer();
+
+    return drawnCards;
+  }
+
+  advanceMulliganPlayer() {
+    const completedPlayerIds = new Set(this.state.setup.completedMulliganPlayerIds);
+    const nextMulliganPlayerId = this.state.setup.mulliganPlayerIds.find(
+      (playerId) => !completedPlayerIds.has(playerId),
+    );
+    const mulliganComplete = nextMulliganPlayerId === undefined;
+
+    this.state = {
+      ...this.state,
+      hand: nextMulliganPlayerId
+        ? this.state.players[nextMulliganPlayerId]?.hand ?? []
+        : this.state.hand,
+      turn: {
+        ...this.state.turn,
+        activePlayerId: nextMulliganPlayerId ?? this.state.turn.activePlayerId,
+        phase: TurnPhase.MULLIGAN,
+      },
+      setup: {
+        ...this.state.setup,
+        currentMulliganPlayerId: nextMulliganPlayerId,
+        mulliganComplete,
+      },
     };
   }
 
@@ -399,6 +594,24 @@ export class GameEngine {
         : ZoneManager.addCardToZone(nextState, card, zoneId);
 
     return true;
+  }
+
+  private requireCurrentMulliganPlayer(playerId: string) {
+    const player = this.state.players[playerId];
+
+    if (!player) {
+      throw new Error(`Unknown player: ${playerId}`);
+    }
+
+    if (this.state.setup.currentMulliganPlayerId !== playerId) {
+      throw new Error("Mulligan decisions must proceed in turn order.");
+    }
+
+    if (player.setup.mulliganCompleted) {
+      throw new Error("Player has already completed mulligan.");
+    }
+
+    return player;
   }
 
   private validatePlayerDeck(playerConfig: PlayerSetupConfig) {
