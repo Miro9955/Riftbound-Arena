@@ -88,6 +88,12 @@ export class TurnManager {
         // TODO(Core Rules 314-315.3): replace this placeholder with ready/beginning/channel reset handling when those systems exist.
         hasDrawn: false,
         actionsRemaining: 1,
+        // Core Rules 163, 315.4.d, and 317.3.b: rune pools empty at official reset timings; ready channeled runes become available again for the turn.
+        exhaustedRuneIds: [],
+        runePool: {
+          available: activePlayer.channeledRunes.length,
+          spent: 0,
+        },
       },
     };
   }

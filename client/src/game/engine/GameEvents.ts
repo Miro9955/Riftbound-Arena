@@ -105,6 +105,35 @@ export type MulliganCompleted = {
   playerId: string;
 };
 
+export type RuneDrawn = {
+  type: "RuneDrawn";
+  playerId: string;
+  card: GameCard;
+};
+
+export type RuneChanneled = {
+  type: "RuneChanneled";
+  playerId: string;
+  card: GameCard;
+};
+
+export type RuneSpent = {
+  type: "RuneSpent";
+  playerId: string;
+  amount: number;
+};
+
+export type RuneRecycled = {
+  type: "RuneRecycled";
+  playerId: string;
+  card: GameCard;
+};
+
+export type RunesReset = {
+  type: "RunesReset";
+  playerId: string;
+};
+
 export type GameEvent =
   | CardDrawn
   | CardMoved
@@ -123,6 +152,11 @@ export type GameEvent =
   | MulliganStarted
   | CardsSetAsideForMulligan
   | CardsRecycled
-  | MulliganCompleted;
+  | MulliganCompleted
+  | RuneDrawn
+  | RuneChanneled
+  | RuneSpent
+  | RuneRecycled
+  | RunesReset;
 
 export type GameEventListener = (event: GameEvent) => void;

@@ -20,6 +20,9 @@ export type GameState = {
 export type PlayerState = {
   deck: GameCard[];
   runeDeck: GameCard[];
+  channeledRunes: GameCard[];
+  exhaustedRuneIds: string[];
+  runePool: RunePoolState;
   hand: GameCard[];
   trash: GameCard[];
   banishment: GameCard[];
@@ -30,6 +33,11 @@ export type PlayerState = {
   hasMulliganed: boolean;
   hasDrawn: boolean;
   actionsRemaining: number;
+};
+
+export type RunePoolState = {
+  available: number;
+  spent: number;
 };
 
 export type PlayerSetupState = {
@@ -116,6 +124,12 @@ export function createInitialGameState(): GameState {
       player1: {
         deck: [],
         runeDeck: [],
+        channeledRunes: [],
+        exhaustedRuneIds: [],
+        runePool: {
+          available: 0,
+          spent: 0,
+        },
         hand: [],
         trash: [],
         banishment: [],

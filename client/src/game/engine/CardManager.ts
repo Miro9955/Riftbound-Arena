@@ -22,6 +22,12 @@ export class CardManager {
         ...state.players,
         [playerId]: {
           runeDeck: state.players[playerId]?.runeDeck ?? [],
+          channeledRunes: state.players[playerId]?.channeledRunes ?? [],
+          exhaustedRuneIds: state.players[playerId]?.exhaustedRuneIds ?? [],
+          runePool: state.players[playerId]?.runePool ?? {
+            available: 0,
+            spent: 0,
+          },
           hand: state.players[playerId]?.hand ?? [],
           trash: state.players[playerId]?.trash ?? [],
           banishment: state.players[playerId]?.banishment ?? [],

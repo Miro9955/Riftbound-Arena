@@ -174,6 +174,12 @@ export class GameEngine {
         nextPlayers[playerConfig.playerId] = {
           deck,
           runeDeck: shuffledRuneDeck,
+          channeledRunes: [],
+          exhaustedRuneIds: [],
+          runePool: {
+            available: 0,
+            spent: 0,
+          },
           hand: startingHand,
           trash: [],
           banishment: [],
@@ -478,6 +484,240 @@ export class GameEngine {
     }
   }
 
+  drawRune(playerId: string) {
+    const player = this.state.players[playerId];
+
+    if (!player || player.runeDeck.length === 0) {
+      return undefined;
+    }
+
+    const [card, ...runeDeck] = player.runeDeck;
+
+    // Core Rules 156-164: runes are drawn from the separate rune deck, not the main deck.
+    this.state = {
+      ...this.state,
+      hand:
+        playerId === this.state.turn.activePlayerId
+          ? [...this.state.hand, card]
+          : this.state.hand,
+      players: {
+        ...this.state.players,
+        [playerId]: {
+          ...player,
+          runeDeck,
+          hand: [...player.hand, card],
+        },
+      },
+    };
+
+    this.emit({
+      type: "RuneDrawn",
+      playerId,
+      card,
+    });
+
+    return card;
+  }
+
+  channelRune(playerId: string, runeCardInstanceId: string) {
+    const player = this.state.players[playerId];
+
+    if (!player) {
+      throw new Error(`Unknown player: ${playerId}`);
+    }
+
+    const runeCard = player.hand.find((card) => card.id === runeCardInstanceId);
+
+    if (!runeCard) {
+      throw new Error("Rune must be in the player's hand before it can be channeled.");
+    }
+
+    if (runeCard.kind !== "rune") {
+      throw new Error("Only rune cards can be channeled.");
+    }
+
+    const nextChanneledRunes = [...player.channeledRunes, runeCard];
+    const nextHand = player.hand.filter((card) => card.id !== runeCardInstanceId);
+
+    // Core Rules 156-164 and 417: channeling moves a rune to the player's board resource area.
+    this.state = {
+      ...this.state,
+      hand:
+        playerId === this.state.turn.activePlayerId
+          ? nextHand
+          : this.state.hand,
+      zones: {
+        ...this.state.zones,
+        channeledRunes:
+          playerId === this.state.turn.activePlayerId
+            ? nextChanneledRunes
+            : this.state.zones.channeledRunes,
+      },
+      players: {
+        ...this.state.players,
+        [playerId]: {
+          ...player,
+          hand: nextHand,
+          channeledRunes: nextChanneledRunes,
+          runePool: {
+            ...player.runePool,
+            available: player.runePool.available + 1,
+          },
+        },
+      },
+    };
+
+    this.emit({
+      type: "RuneChanneled",
+      playerId,
+      card: runeCard,
+    });
+
+    return runeCard;
+  }
+
+  recycleRune(playerId: string, runeCardInstanceId: string) {
+    const player = this.state.players[playerId];
+
+    if (!player) {
+      throw new Error(`Unknown player: ${playerId}`);
+    }
+
+    const runeCard = player.channeledRunes.find(
+      (card) => card.id === runeCardInstanceId,
+    );
+
+    if (!runeCard) {
+      throw new Error("Rune must be channeled before it can be recycled.");
+    }
+
+    const remainingRunes = player.channeledRunes.filter(
+      (card) => card.id !== runeCardInstanceId,
+    );
+    const wasExhausted = player.exhaustedRuneIds.includes(runeCardInstanceId);
+
+    // Core Rules 156-164 and 403: recycled runes return to the owner's rune deck.
+    // TODO(Core Rules 403): support owner-chosen ordering for multiple simultaneous rune recycles.
+    this.state = {
+      ...this.state,
+      zones: {
+        ...this.state.zones,
+        channeledRunes:
+          playerId === this.state.turn.activePlayerId
+            ? remainingRunes
+            : this.state.zones.channeledRunes,
+      },
+      players: {
+        ...this.state.players,
+        [playerId]: {
+          ...player,
+          runeDeck: [...player.runeDeck, runeCard],
+          channeledRunes: remainingRunes,
+          exhaustedRuneIds: player.exhaustedRuneIds.filter(
+            (cardId) => cardId !== runeCardInstanceId,
+          ),
+          runePool: {
+            available: Math.max(
+              0,
+              player.runePool.available - (wasExhausted ? 0 : 1),
+            ),
+            spent: player.runePool.spent,
+          },
+        },
+      },
+    };
+
+    this.emit({
+      type: "RuneRecycled",
+      playerId,
+      card: runeCard,
+    });
+
+    return runeCard;
+  }
+
+  getAvailableRunes(playerId: string) {
+    return this.state.players[playerId]?.runePool.available ?? 0;
+  }
+
+  spendRunes(playerId: string, amountOrRequirement: number | { amount: number }) {
+    const player = this.state.players[playerId];
+    const amount =
+      typeof amountOrRequirement === "number"
+        ? amountOrRequirement
+        : amountOrRequirement.amount;
+
+    if (!player) {
+      throw new Error(`Unknown player: ${playerId}`);
+    }
+
+    if (amount < 0) {
+      throw new Error("Rune spend amount cannot be negative.");
+    }
+
+    if (player.runePool.available < amount) {
+      throw new Error("Cannot spend more runes than available.");
+    }
+
+    const readyRuneIds = player.channeledRunes
+      .map((card) => card.id)
+      .filter((cardId) => !player.exhaustedRuneIds.includes(cardId));
+    const runeIdsToExhaust = readyRuneIds.slice(0, amount);
+
+    // Core Rules 156-164 and 416: using rune resources exhausts/uses available runes in the pool.
+    this.state = {
+      ...this.state,
+      players: {
+        ...this.state.players,
+        [playerId]: {
+          ...player,
+          exhaustedRuneIds: [...player.exhaustedRuneIds, ...runeIdsToExhaust],
+          runePool: {
+            available: player.runePool.available - amount,
+            spent: player.runePool.spent + amount,
+          },
+        },
+      },
+    };
+
+    this.emit({
+      type: "RuneSpent",
+      playerId,
+      amount,
+    });
+
+    return amount;
+  }
+
+  resetRunesForTurn(playerId: string) {
+    const player = this.state.players[playerId];
+
+    if (!player) {
+      throw new Error(`Unknown player: ${playerId}`);
+    }
+
+    // Core Rules 163, 315.4.d, and 317.3.b: rune pools empty at official reset timings; ready channeled runes become available again.
+    this.state = {
+      ...this.state,
+      players: {
+        ...this.state.players,
+        [playerId]: {
+          ...player,
+          exhaustedRuneIds: [],
+          runePool: {
+            available: player.channeledRunes.length,
+            spent: 0,
+          },
+        },
+      },
+    };
+
+    this.emit({
+      type: "RunesReset",
+      playerId,
+    });
+  }
+
   playCard(playerId: string, cardInstanceId: string, zoneId: ZoneId) {
     const moved = this.moveCardToZone(cardInstanceId, zoneId);
 
@@ -556,6 +796,7 @@ export class GameEngine {
 
     this.state = TurnManager.endTurn(this.state);
     this.emitPhaseChanged();
+    this.emitRunesReset(this.state.turn.activePlayerId);
     this.emitTurnStarted();
   }
 
@@ -589,6 +830,7 @@ export class GameEngine {
       previousTurn.phase === TurnPhase.MULLIGAN ||
       previousTurn.phase === TurnPhase.END
     ) {
+      this.emitRunesReset(this.state.turn.activePlayerId);
       this.emitTurnStarted();
     }
 
@@ -614,6 +856,7 @@ export class GameEngine {
     this.state = TurnController.nextTurn(this.state);
 
     this.emitPhaseChanged();
+    this.emitRunesReset(this.state.turn.activePlayerId);
     this.emitTurnStarted();
   }
 
@@ -632,6 +875,14 @@ export class GameEngine {
       type: "TurnStarted",
       activePlayerId: this.state.turn.activePlayerId,
       turnNumber: this.state.turn.turnNumber,
+    });
+  }
+
+  private emitRunesReset(playerId: string) {
+    // Core Rules 163, 315.4.d, and 317.3.b: rune pool/reset timing is player-scoped.
+    this.emit({
+      type: "RunesReset",
+      playerId,
     });
   }
 

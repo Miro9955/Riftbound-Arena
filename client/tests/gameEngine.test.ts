@@ -291,6 +291,10 @@ describe("GameEngine", () => {
         turnNumber: 2,
       },
       {
+        type: "RunesReset",
+        playerId: "player2",
+      },
+      {
         type: "TurnStarted",
         activePlayerId: "player2",
         turnNumber: 2,
@@ -345,6 +349,10 @@ describe("GameEngine", () => {
         phase: TurnPhase.TURN_START,
         activePlayerId: "player2",
         turnNumber: 1,
+      },
+      {
+        type: "RunesReset",
+        playerId: "player2",
       },
       {
         type: "TurnStarted",
@@ -522,6 +530,10 @@ describe("GameEngine", () => {
         turnNumber: 4,
       },
       {
+        type: "RunesReset",
+        playerId: "player1",
+      },
+      {
         type: "TurnStarted",
         activePlayerId: "player1",
         turnNumber: 4,
@@ -549,5 +561,226 @@ describe("GameEngine", () => {
     expect(engine.getState().turn.activePlayerId).toBe("player2");
     expect(engine.getState().players.player2.hasDrawn).toBe(false);
     expect(engine.getState().players.player2.actionsRemaining).toBe(1);
+  });
+
+  it("draws a rune from the rune deck", () => {
+    const rune = createMockCard({ id: "rune-1", kind: "rune" });
+    const nextRune = createMockCard({ id: "rune-2", kind: "rune" });
+    const engine = createMockEngine({
+      players: {
+        player1: createMockPlayer({ runeDeck: [rune, nextRune] }),
+      },
+    });
+    const { events } = collectGameEvents(engine);
+
+    const drawnRune = engine.drawRune("player1");
+
+    expect(drawnRune).toEqual(rune);
+    expect(engine.getState().players.player1.runeDeck).toEqual([nextRune]);
+    expect(engine.getState().players.player1.hand).toEqual([rune]);
+    expect(events).toEqual([
+      {
+        type: "RuneDrawn",
+        playerId: "player1",
+        card: rune,
+      },
+    ]);
+  });
+
+  it("channels a rune into the channeled runes zone and updates availability", () => {
+    const rune = createMockCard({ id: "rune-channel", kind: "rune" });
+    const engine = createMockEngine({
+      hand: [rune],
+      players: {
+        player1: createMockPlayer({ hand: [rune] }),
+      },
+      turn: {
+        activePlayerId: "player1",
+        turnNumber: 1,
+        phase: TurnPhase.MAIN,
+        playerOrder: ["player1"],
+      },
+    });
+    const { events } = collectGameEvents(engine);
+
+    engine.channelRune("player1", rune.id);
+
+    expect(engine.getState().players.player1.hand).toEqual([]);
+    expect(engine.getState().players.player1.channeledRunes).toEqual([rune]);
+    expect(engine.getState().zones.channeledRunes).toEqual([rune]);
+    expect(engine.getState().players.player1.runePool).toEqual({
+      available: 1,
+      spent: 0,
+    });
+    expect(engine.getAvailableRunes("player1")).toBe(1);
+    expect(events).toEqual([
+      {
+        type: "RuneChanneled",
+        playerId: "player1",
+        card: rune,
+      },
+    ]);
+  });
+
+  it("spends available runes and emits RuneSpent", () => {
+    const runes = [
+      createMockCard({ id: "rune-a", kind: "rune" }),
+      createMockCard({ id: "rune-b", kind: "rune" }),
+    ];
+    const engine = createMockEngine({
+      players: {
+        player1: createMockPlayer({
+          channeledRunes: runes,
+          runePool: {
+            available: 2,
+            spent: 0,
+          },
+        }),
+      },
+    });
+    const { events } = collectGameEvents(engine);
+
+    engine.spendRunes("player1", 1);
+
+    expect(engine.getState().players.player1.runePool).toEqual({
+      available: 1,
+      spent: 1,
+    });
+    expect(engine.getState().players.player1.exhaustedRuneIds).toEqual(["rune-a"]);
+    expect(events).toEqual([
+      {
+        type: "RuneSpent",
+        playerId: "player1",
+        amount: 1,
+      },
+    ]);
+  });
+
+  it("does not spend more runes than available", () => {
+    const engine = createMockEngine({
+      players: {
+        player1: createMockPlayer({
+          runePool: {
+            available: 1,
+            spent: 0,
+          },
+        }),
+      },
+    });
+
+    expect(() => {
+      engine.spendRunes("player1", 2);
+    }).toThrow("Cannot spend more runes than available.");
+    expect(engine.getState().players.player1.runePool).toEqual({
+      available: 1,
+      spent: 0,
+    });
+  });
+
+  it("recycles a channeled rune back to the rune deck", () => {
+    const rune = createMockCard({ id: "recycle-rune", kind: "rune" });
+    const engine = createMockEngine({
+      zones: createZoneState("channeledRunes", [rune]),
+      players: {
+        player1: createMockPlayer({
+          channeledRunes: [rune],
+          runePool: {
+            available: 1,
+            spent: 0,
+          },
+        }),
+      },
+      turn: {
+        activePlayerId: "player1",
+        turnNumber: 1,
+        phase: TurnPhase.MAIN,
+        playerOrder: ["player1"],
+      },
+    });
+    const { events } = collectGameEvents(engine);
+
+    engine.recycleRune("player1", rune.id);
+
+    expect(engine.getState().players.player1.channeledRunes).toEqual([]);
+    expect(engine.getState().zones.channeledRunes).toEqual([]);
+    expect(engine.getState().players.player1.runeDeck).toEqual([rune]);
+    expect(engine.getState().players.player1.runePool.available).toBe(0);
+    expect(events).toEqual([
+      {
+        type: "RuneRecycled",
+        playerId: "player1",
+        card: rune,
+      },
+    ]);
+  });
+
+  it("resets runes for the turn and emits RunesReset", () => {
+    const runes = [
+      createMockCard({ id: "reset-rune-a", kind: "rune" }),
+      createMockCard({ id: "reset-rune-b", kind: "rune" }),
+    ];
+    const engine = createMockEngine({
+      players: {
+        player1: createMockPlayer({
+          channeledRunes: runes,
+          exhaustedRuneIds: ["reset-rune-a"],
+          runePool: {
+            available: 1,
+            spent: 1,
+          },
+        }),
+      },
+    });
+    const { events } = collectGameEvents(engine);
+
+    engine.resetRunesForTurn("player1");
+
+    expect(engine.getState().players.player1.exhaustedRuneIds).toEqual([]);
+    expect(engine.getState().players.player1.runePool).toEqual({
+      available: 2,
+      spent: 0,
+    });
+    expect(events).toEqual([
+      {
+        type: "RunesReset",
+        playerId: "player1",
+      },
+    ]);
+  });
+
+  it("resets rune availability when advancing to the next player's turn", () => {
+    const runes = [createMockCard({ id: "turn-rune", kind: "rune" })];
+    const engine = createMockEngine({
+      players: {
+        player1: createMockPlayer(),
+        player2: createMockPlayer({
+          channeledRunes: runes,
+          exhaustedRuneIds: ["turn-rune"],
+          runePool: {
+            available: 0,
+            spent: 1,
+          },
+        }),
+      },
+      turn: {
+        activePlayerId: "player1",
+        turnNumber: 1,
+        phase: TurnPhase.END,
+        playerOrder: ["player1", "player2"],
+      },
+    });
+    const { events } = collectGameEvents(engine);
+
+    engine.nextTurn();
+
+    expect(engine.getState().players.player2.exhaustedRuneIds).toEqual([]);
+    expect(engine.getState().players.player2.runePool).toEqual({
+      available: 1,
+      spent: 0,
+    });
+    expect(events).toContainEqual({
+      type: "RunesReset",
+      playerId: "player2",
+    });
   });
 });

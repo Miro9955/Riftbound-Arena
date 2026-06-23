@@ -27,6 +27,12 @@ export function createMockPlayer(overrides: Partial<PlayerState> = {}): PlayerSt
   return {
     deck: overrides.deck ?? [],
     runeDeck: overrides.runeDeck ?? [],
+    channeledRunes: overrides.channeledRunes ?? [],
+    exhaustedRuneIds: overrides.exhaustedRuneIds ?? [],
+    runePool: overrides.runePool ?? {
+      available: 0,
+      spent: 0,
+    },
     hand: overrides.hand ?? [],
     trash: overrides.trash ?? [],
     banishment: overrides.banishment ?? [],
