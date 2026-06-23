@@ -154,7 +154,7 @@ function getLegalDropZoneIds(
   }
 
   if (currentZoneId && visibleCard?.kind === "unit") {
-    (["battlefield1", "battlefield2"] as ZoneId[]).forEach((zoneId) => {
+    (["battlefield1", "battlefield2", "base"] as ZoneId[]).forEach((zoneId) => {
       if (engine.validateMoveUnit(UI_PLAYER_ID, cardId, zoneId).ok) {
         legalDropZoneIds.add(zoneId);
       }
@@ -268,7 +268,7 @@ function App() {
         didMutate = engine.playCard(UI_PLAYER_ID, cardId, dropTargetId);
       } else if (
         currentZoneId &&
-        isBattlefieldId(dropTargetId) &&
+        (isBattlefieldId(dropTargetId) || dropTargetId === "base") &&
         findCard(nextState, cardId)?.kind === "unit"
       ) {
         const validation = engine.validateMoveUnit(
@@ -335,6 +335,8 @@ function App() {
       if (!rune) {
         throw new Error("No rune is available to draw.");
       }
+
+      engineRef.current.channelRune(activePlayerId, rune.id);
     });
   };
 

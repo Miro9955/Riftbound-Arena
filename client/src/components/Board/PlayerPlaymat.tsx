@@ -1,6 +1,7 @@
 import type { GameCard } from "../../data/cards";
 import type { DropZoneId, GameState, ZoneId } from "../../game/gameState";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import GameCardView from "../GameCard/GameCard";
 import HandTray from "../Hand/Hand";
 import Zone from "../Zone/Zone";
 
@@ -47,6 +48,59 @@ function RunePanel({
   );
 }
 
+function TrashModal({
+  cards,
+  onClose,
+}: {
+  cards: GameCard[];
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose]);
+
+  return (
+    <div className="zone-modal-backdrop" onMouseDown={onClose}>
+      <div
+        className="zone-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Trash"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="zone-modal-header">
+          <h2>Trash {cards.length}</h2>
+          <button type="button" onClick={onClose} aria-label="Close trash">
+            Close
+          </button>
+        </div>
+        <div className="zone-modal-card-grid">
+          {cards.length === 0 ? (
+            <p className="zone-modal-empty">Trash is empty.</p>
+          ) : (
+            cards.map((card) => (
+              <div className="zone-modal-card" key={card.id}>
+                <GameCardView card={card} />
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// TODO(UI tests): verify the trash zone renders as a compact pile once DOM component tests are configured.
 function PlayerPlaymat({
   perspective,
   gameState,
@@ -54,6 +108,7 @@ function PlayerPlaymat({
   playableCardIds = [],
   legalDropZoneIds = [],
 }: PlayerPlaymatProps) {
+  const [isTrashOpen, setIsTrashOpen] = useState(false);
   const isOpponent = perspective === "opponent";
   const activeZones = !isOpponent && gameState;
   const player = activeZones
@@ -93,6 +148,9 @@ function PlayerPlaymat({
         droppableId={activeZones ? "trash" : undefined}
         cards={activeZones ? gameState.zones.trash : undefined}
         isLegalDropZone={isLegalDropZone("trash")}
+        displayMode="pile"
+        countLabel={activeZones ? `${gameState.zones.trash.length}` : undefined}
+        onZoneClick={activeZones ? () => setIsTrashOpen(true) : undefined}
       />
     </SidePanel>
   );
@@ -118,6 +176,7 @@ function PlayerPlaymat({
                 droppableId={activeZones ? "battlefield1" : undefined}
                 cards={activeZones ? gameState.zones.battlefield1 : undefined}
                 isLegalDropZone={isLegalDropZone("battlefield1")}
+                displayMode="stack"
               />
               <Zone
                 title="Battlefield 2"
@@ -125,6 +184,7 @@ function PlayerPlaymat({
                 droppableId={activeZones ? "battlefield2" : undefined}
                 cards={activeZones ? gameState.zones.battlefield2 : undefined}
                 isLegalDropZone={isLegalDropZone("battlefield2")}
+                displayMode="stack"
               />
               <Zone
                 title="Channeled Runes"
@@ -132,6 +192,10 @@ function PlayerPlaymat({
                 droppableId={activeZones ? "channeledRunes" : undefined}
                 cards={activeZones ? gameState.zones.channeledRunes : undefined}
                 isLegalDropZone={isLegalDropZone("channeledRunes")}
+                displayMode="stack"
+                countLabel={
+                  activeZones ? `${gameState.zones.channeledRunes.length}` : undefined
+                }
               />
               <Zone
                 title="Base"
@@ -139,6 +203,7 @@ function PlayerPlaymat({
                 droppableId={activeZones ? "base" : undefined}
                 cards={activeZones ? gameState.zones.base : undefined}
                 isLegalDropZone={isLegalDropZone("base")}
+                displayMode="stack"
               />
             </div>
 
@@ -156,6 +221,9 @@ function PlayerPlaymat({
             playableCardIds={playableCardIds}
           />
         </div>
+      )}
+      {activeZones && isTrashOpen && (
+        <TrashModal cards={gameState.zones.trash} onClose={() => setIsTrashOpen(false)} />
       )}
     </section>
   );

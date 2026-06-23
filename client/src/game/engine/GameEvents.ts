@@ -30,7 +30,7 @@ export type UnitMoved = {
   playerId: string;
   cardInstanceId: string;
   fromZoneId: ZoneId;
-  toZoneId: BattlefieldId;
+  toZoneId: ZoneId;
 };
 
 export type BattlefieldControlChanged = {

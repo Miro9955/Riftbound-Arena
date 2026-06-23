@@ -149,7 +149,7 @@ body {
   justify-content: center;
   text-align: center;
   padding: 8px;
-  overflow: visible;
+  overflow: hidden;
   isolation: isolate;
 }
 
@@ -195,18 +195,37 @@ body {
   z-index: 2;
 }
 
-.zone-card-list {
+.zone-count-label {
+  position: absolute !important;
+  top: 8px;
+  right: 10px;
+  z-index: 7 !important;
+  min-width: 22px;
+  border: 1px solid #d89b3aaa;
+  border-radius: 999px;
+  background: #05070ce8;
+  color: #ffe0a3 !important;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 10px !important;
+  line-height: 1.2;
+  padding: 2px 6px;
+  letter-spacing: 0 !important;
+  text-shadow: 0 1px 4px #000 !important;
+}
+
+.board-zone-card-list {
   position: absolute;
   inset: 8px;
   z-index: 5;
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-wrap: wrap;
-  align-content: center;
-  gap: 10px;
-  overflow: visible;
+  overflow: hidden;
   pointer-events: none;
+}
+
+.zone-card-row {
+  gap: 6px;
 }
 
 .draggable-card {
@@ -237,17 +256,98 @@ body {
 }
 
 .draggable-card-zone {
-  flex: 0 0 auto;
+  z-index: var(--zone-card-z);
   pointer-events: auto;
+  transition:
+    transform 150ms ease,
+    filter 150ms ease;
 }
 
 .draggable-card-zone:hover,
 .draggable-card-zone:focus-within {
   z-index: 1200;
+  transform: translateY(-6px);
+}
+
+.board-zone-card {
+  position: relative;
+  flex: 0 0 auto;
+  margin-left: 0;
+  transform: none;
+}
+
+.zone-card-row-many {
+  gap: 0;
+}
+
+.zone-card-row-many .board-zone-card {
+  margin-left: -14px;
+}
+
+.zone-card-row-crowded {
+  gap: 0;
+}
+
+.zone-card-row-crowded .board-zone-card {
+  margin-left: -24px;
+}
+
+.zone-card-row-many .board-zone-card:first-child,
+.zone-card-row-crowded .board-zone-card:first-child {
+  margin-left: 0;
+}
+
+.trash-pile {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 5;
+  width: clamp(54px, 5vw, 72px);
+  aspect-ratio: 63 / 88;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  overflow: visible;
+}
+
+.trash-pile::before,
+.trash-pile::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px solid #d89b3a55;
+  border-radius: 5px;
+  background: #05070c;
+  box-shadow: 0 5px 10px #0009;
+}
+
+.trash-pile::before {
+  transform: translate(-4px, -4px);
+}
+
+.trash-pile::after {
+  transform: translate(4px, -2px);
+}
+
+.trash-pile-card {
+  position: relative;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 3;
+  transform: none;
+}
+
+.trash-pile-card:hover,
+.trash-pile-card:focus-within {
+  transform: translateY(-5px);
+}
+
+.is-pile-zone .zone-card-mini {
+  width: 100%;
 }
 
 .zone-card-mini {
-  width: clamp(45px, 4vw, 70px);
+  width: clamp(42px, 3.6vw, 64px);
   aspect-ratio: 63 / 88;
   border-radius: 5px;
   border: 1px solid #c99b4e;
@@ -346,22 +446,18 @@ body {
 }
 
 .resource-zone {
-  overflow: visible;
+  overflow: hidden;
 }
 
-.resource-zone .zone-card-list {
+.resource-zone .board-zone-card-list {
   inset: 8px;
   min-width: 0;
   min-height: 0;
-  align-items: center;
-  justify-content: center;
-  align-content: center;
-  gap: 8px;
-  overflow: visible;
+  overflow: hidden;
 }
 
 .resource-zone .zone-card-mini {
-  width: clamp(55px, 4.4vw, 75px);
+  width: clamp(46px, 3.8vw, 66px);
   height: auto;
 }
 
@@ -462,13 +558,14 @@ body {
 }
 
 .rune-panel {
-  justify-content: flex-start;
-  padding-top: clamp(8px, 1.2vh, 14px);
+  align-items: flex-start;
+  justify-content: center;
+  padding: clamp(8px, 1.2vh, 14px) 10px;
 }
 
 .rune-panel small {
   position: absolute;
-  top: clamp(32px, 5vh, 44px);
+  top: 10px;
   right: 10px;
   color: #f8e7bd;
   font-family: Arial, Helvetica, sans-serif;
@@ -477,9 +574,11 @@ body {
 }
 
 .rune-card-back {
+  position: relative;
   width: clamp(56px, 6.2vw, 86px);
   aspect-ratio: 63 / 88;
-  margin-top: clamp(28px, 5vh, 42px);
+  margin-top: clamp(18px, 3vh, 28px);
+  margin-left: 0;
   border: 2px solid #c9d3da;
   border-radius: 8px;
   background:
@@ -491,6 +590,26 @@ body {
   justify-content: center;
   font-size: clamp(18px, 2vw, 26px);
   box-shadow: 0 12px 18px #000c;
+}
+
+.rune-card-back::before,
+.rune-card-back::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border: 2px solid #c9d3da;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #f8fafc, #d9dee4 42%, #f7f9fb);
+  box-shadow: 0 10px 14px #0009;
+}
+
+.rune-card-back::before {
+  transform: translate(5px, -5px);
+}
+
+.rune-card-back::after {
+  transform: translate(10px, -10px);
 }
 
 .mulligan-divider {
@@ -720,6 +839,90 @@ body {
   text-transform: none;
   box-shadow: 0 10px 24px #000d;
   pointer-events: none;
+}
+
+.zone-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 99990;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0009;
+  padding: 28px;
+}
+
+.zone-modal {
+  width: min(86vw, 920px);
+  max-height: min(78vh, 720px);
+  border: 1px solid #d89b3aaa;
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, #111820, #03070c);
+  box-shadow:
+    inset 0 0 18px #000,
+    0 24px 54px #000;
+  color: #f8e7bd;
+  padding: 14px;
+  overflow: hidden;
+}
+
+.zone-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.zone-modal-header h2 {
+  margin: 0;
+  color: #ffe0a3;
+  font-size: 18px;
+  text-transform: uppercase;
+}
+
+.zone-modal-header button {
+  height: 30px;
+  border: 1px solid #d89b3aaa;
+  border-radius: 5px;
+  background: #071017;
+  color: #f8e7bd;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.zone-modal-card-grid {
+  max-height: calc(min(78vh, 720px) - 72px);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 12px;
+  overflow: auto;
+  padding: 4px 4px 12px;
+}
+
+.zone-modal-card {
+  width: min(100%, 120px);
+  aspect-ratio: 63 / 88;
+  justify-self: center;
+}
+
+.zone-modal-card .game-card {
+  width: 100%;
+  height: 100%;
+  flex: none;
+  transform: none;
+}
+
+.zone-modal-empty {
+  margin: 16px 0;
+  color: #f8e7bd;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 14px;
+  font-weight: 800;
 }
 
 .game-over-message {

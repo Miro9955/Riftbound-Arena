@@ -328,6 +328,41 @@ describe("GameEngine", () => {
     expect(engine.getUnitsAtBattlefield("battlefield1")).toEqual([unit]);
   });
 
+  it("moves a unit from a battlefield back to base", () => {
+    const unit = createMockCard({ id: "return-to-base-unit", kind: "unit" });
+    const engine = createMockEngine({
+      zones: createZoneState("battlefield1", [unit]),
+      battlefields: {
+        battlefield1: {
+          controllerId: "player1",
+          unitControllers: {
+            [unit.id]: "player1",
+          },
+        },
+        battlefield2: {
+          unitControllers: {},
+        },
+      },
+      players: {
+        player1: createMockPlayer(),
+      },
+      turn: {
+        activePlayerId: "player1",
+        turnNumber: 1,
+        phase: TurnPhase.MAIN,
+        playerOrder: ["player1"],
+      },
+    });
+
+    expect(engine.canMoveUnit("player1", unit.id, "base")).toBe(true);
+    expect(engine.moveUnit("player1", unit.id, "base")).toBe(true);
+
+    expect(engine.getState().zones.battlefield1).toEqual([]);
+    expect(engine.getState().zones.base).toEqual([unit]);
+    expect(engine.getState().players.player1.base).toEqual([unit]);
+    expect(engine.getBattlefieldController("battlefield1")).toBeUndefined();
+  });
+
   it("does not move a non-unit as a unit", () => {
     const spell = createMockCard({ id: "spell-move", kind: "spell" });
     const engine = createMockEngine({
@@ -388,7 +423,7 @@ describe("GameEngine", () => {
     });
 
     expect(engine.validateMoveUnit("player1", unit.id, "trash").errors).toContain(
-      "Units can only move to battlefield zones.",
+      "Units can only move to battlefield or base zones.",
     );
     expect(engine.moveUnit("player1", unit.id, "trash")).toBe(false);
   });
@@ -1324,6 +1359,30 @@ describe("GameEngine", () => {
         card: rune,
       },
     ]);
+  });
+
+  it("draws and channels a rune into Channeled Runes for the UI draw rune action", () => {
+    const rune = createMockCard({ id: "rune-draw-channel", kind: "rune" });
+    const engine = createMockEngine({
+      players: {
+        player1: createMockPlayer({ runeDeck: [rune] }),
+      },
+      turn: {
+        activePlayerId: "player1",
+        turnNumber: 1,
+        phase: TurnPhase.MAIN,
+        playerOrder: ["player1"],
+      },
+    });
+
+    const drawnRune = engine.drawRune("player1");
+    engine.channelRune("player1", drawnRune!.id);
+
+    expect(engine.getState().players.player1.hand).toEqual([]);
+    expect(engine.getState().players.player1.runeDeck).toEqual([]);
+    expect(engine.getState().players.player1.channeledRunes).toEqual([rune]);
+    expect(engine.getState().zones.channeledRunes).toEqual([rune]);
+    expect(engine.getAvailableRunes("player1")).toBe(1);
   });
 
   it("channels a rune into the channeled runes zone and updates availability", () => {

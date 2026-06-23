@@ -910,9 +910,9 @@ export class GameEngine {
       errors.push("Only unit cards can move as units.");
     }
 
-    // Core Rules 407 and 423-436: standard move destinations are battlefield locations.
-    if (!isBattlefieldId(targetZoneId)) {
-      errors.push("Units can only move to battlefield zones.");
+    // Core Rules 407 and 423-436: standard move destinations in this foundation are battlefield locations or the player's base.
+    if (!isBattlefieldId(targetZoneId) && targetZoneId !== "base") {
+      errors.push("Units can only move to battlefield or base zones.");
     }
 
     // Core Rules 300-316 and 407: standard movement is an action-phase/main-phase game action.
@@ -934,7 +934,7 @@ export class GameEngine {
   moveUnit(playerId: string, cardInstanceId: string, targetZoneId: ZoneId) {
     const validation = this.validateMoveUnit(playerId, cardInstanceId, targetZoneId);
 
-    if (!validation.ok || !isBattlefieldId(targetZoneId)) {
+    if (!validation.ok) {
       return false;
     }
 
@@ -958,16 +958,20 @@ export class GameEngine {
         card,
       ],
     };
-    const nextBattlefields = {
-      ...this.state.battlefields,
-      [targetZoneId]: {
-        ...this.state.battlefields[targetZoneId],
-        unitControllers: {
-          ...this.state.battlefields[targetZoneId].unitControllers,
-          [cardInstanceId]: playerId,
-        },
-      },
-    };
+    const nextBattlefields = isBattlefieldId(targetZoneId)
+      ? {
+          ...this.state.battlefields,
+          [targetZoneId]: {
+            ...this.state.battlefields[targetZoneId],
+            unitControllers: {
+              ...this.state.battlefields[targetZoneId].unitControllers,
+              [cardInstanceId]: playerId,
+            },
+          },
+        }
+      : {
+          ...this.state.battlefields,
+        };
 
     if (sourceBattlefieldId) {
       const { [cardInstanceId]: _removed, ...unitControllers } =
@@ -993,7 +997,14 @@ export class GameEngine {
               ? this.state.players[playerId].base.filter(
                   (baseCard) => baseCard.id !== cardInstanceId,
                 )
-              : this.state.players[playerId].base,
+              : targetZoneId === "base"
+                ? [
+                    ...this.state.players[playerId].base.filter(
+                      (baseCard) => baseCard.id !== cardInstanceId,
+                    ),
+                    card,
+                  ]
+                : this.state.players[playerId].base,
         },
       },
     };
@@ -1010,7 +1021,9 @@ export class GameEngine {
       this.updateBattlefieldControl(sourceBattlefieldId);
     }
 
-    this.updateBattlefieldControl(targetZoneId);
+    if (isBattlefieldId(targetZoneId)) {
+      this.updateBattlefieldControl(targetZoneId);
+    }
 
     return true;
   }
