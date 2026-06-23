@@ -60,15 +60,32 @@ describe("GameEngine", () => {
   });
 
   it("plays a hand card into a zone", () => {
-    const card = createMockCard({ id: "playable-card" });
-    const engine = createMockEngine({ hand: [card] });
+    const card = createMockCard({ id: "playable-card", cost: 0 });
+    const engine = createMockEngine({
+      hand: [card],
+      players: {
+        player1: createMockPlayer({ hand: [card] }),
+      },
+      turn: {
+        activePlayerId: "player1",
+        turnNumber: 1,
+        phase: TurnPhase.MAIN,
+        playerOrder: ["player1"],
+      },
+    });
     const { events } = collectGameEvents(engine);
 
     engine.playCard("player1", card.id, "battlefield1");
 
     expect(engine.getState().hand).toEqual([]);
+    expect(engine.getState().players.player1.hand).toEqual([]);
     expect(engine.getState().zones.battlefield1).toEqual([card]);
     expect(events).toEqual([
+      {
+        type: "CardMoved",
+        cardInstanceId: card.id,
+        zoneId: "battlefield1",
+      },
       {
         type: "CardPlayed",
         playerId: "player1",
@@ -76,6 +93,203 @@ describe("GameEngine", () => {
         zoneId: "battlefield1",
       },
     ]);
+  });
+
+  it("does not play an opponent card", () => {
+    const card = createMockCard({ id: "opponent-card", cost: 0 });
+    const engine = createMockEngine({
+      players: {
+        player1: createMockPlayer(),
+        player2: createMockPlayer({ hand: [card] }),
+      },
+      turn: {
+        activePlayerId: "player1",
+        turnNumber: 1,
+        phase: TurnPhase.MAIN,
+        playerOrder: ["player1", "player2"],
+      },
+    });
+
+    expect(engine.canPlayCard("player1", card.id, "battlefield1")).toBe(false);
+    expect(engine.validatePlayCard("player1", card.id, "battlefield1").errors).toContain(
+      "Card must be in the player's hand.",
+    );
+    expect(engine.playCard("player1", card.id, "battlefield1")).toBe(false);
+    expect(engine.getState().players.player2.hand).toEqual([card]);
+  });
+
+  it("does not play a card that is not in hand", () => {
+    const card = createMockCard({ id: "not-in-hand", cost: 0 });
+    const engine = createMockEngine({
+      zones: createZoneState("base", [card]),
+      players: {
+        player1: createMockPlayer(),
+      },
+      turn: {
+        activePlayerId: "player1",
+        turnNumber: 1,
+        phase: TurnPhase.MAIN,
+        playerOrder: ["player1"],
+      },
+    });
+
+    expect(engine.canPlayCard("player1", card.id, "battlefield1")).toBe(false);
+    expect(engine.playCard("player1", card.id, "battlefield1")).toBe(false);
+    expect(engine.getState().zones.base).toEqual([card]);
+  });
+
+  it("does not play outside the allowed phase", () => {
+    const card = createMockCard({ id: "wrong-phase", cost: 0 });
+    const engine = createMockEngine({
+      players: {
+        player1: createMockPlayer({ hand: [card] }),
+      },
+      turn: {
+        activePlayerId: "player1",
+        turnNumber: 1,
+        phase: TurnPhase.DRAW,
+        playerOrder: ["player1"],
+      },
+    });
+
+    expect(engine.validatePlayCard("player1", card.id, "battlefield1").errors).toContain(
+      "Cards can only be played during the main phase.",
+    );
+    expect(engine.playCard("player1", card.id, "battlefield1")).toBe(false);
+  });
+
+  it("does not play without enough available runes", () => {
+    const card = createMockCard({ id: "too-expensive", cost: 2 });
+    const engine = createMockEngine({
+      players: {
+        player1: createMockPlayer({
+          hand: [card],
+          runePool: {
+            available: 1,
+            spent: 0,
+          },
+        }),
+      },
+      turn: {
+        activePlayerId: "player1",
+        turnNumber: 1,
+        phase: TurnPhase.MAIN,
+        playerOrder: ["player1"],
+      },
+    });
+
+    expect(engine.validatePlayCard("player1", card.id, "battlefield1").errors).toContain(
+      "Not enough available runes to play this card.",
+    );
+    expect(engine.playCard("player1", card.id, "battlefield1")).toBe(false);
+    expect(engine.getState().players.player1.runePool).toEqual({
+      available: 1,
+      spent: 0,
+    });
+  });
+
+  it("spends runes and emits events when playing a card", () => {
+    const card = createMockCard({ id: "paid-unit", cost: 2 });
+    const runes = [
+      createMockCard({ id: "pay-rune-1", kind: "rune" }),
+      createMockCard({ id: "pay-rune-2", kind: "rune" }),
+    ];
+    const engine = createMockEngine({
+      hand: [card],
+      players: {
+        player1: createMockPlayer({
+          hand: [card],
+          channeledRunes: runes,
+          runePool: {
+            available: 2,
+            spent: 0,
+          },
+        }),
+      },
+      turn: {
+        activePlayerId: "player1",
+        turnNumber: 1,
+        phase: TurnPhase.MAIN,
+        playerOrder: ["player1"],
+      },
+    });
+    const { events } = collectGameEvents(engine);
+
+    expect(engine.playCard("player1", card.id, "battlefield1")).toBe(true);
+
+    expect(engine.getState().players.player1.runePool).toEqual({
+      available: 0,
+      spent: 2,
+    });
+    expect(engine.getState().players.player1.exhaustedRuneIds).toEqual([
+      "pay-rune-1",
+      "pay-rune-2",
+    ]);
+    expect(engine.getState().players.player1.hand).toEqual([]);
+    expect(engine.getState().zones.battlefield1).toEqual([card]);
+    expect(events).toEqual([
+      {
+        type: "RuneSpent",
+        playerId: "player1",
+        amount: 2,
+      },
+      {
+        type: "CardMoved",
+        cardInstanceId: card.id,
+        zoneId: "battlefield1",
+      },
+      {
+        type: "CardPlayed",
+        playerId: "player1",
+        cardInstanceId: card.id,
+        zoneId: "battlefield1",
+      },
+    ]);
+  });
+
+  it("resolves a played spell to trash", () => {
+    const spell = createMockCard({ id: "simple-spell", kind: "spell", cost: 0 });
+    const engine = createMockEngine({
+      hand: [spell],
+      players: {
+        player1: createMockPlayer({ hand: [spell] }),
+      },
+      turn: {
+        activePlayerId: "player1",
+        turnNumber: 1,
+        phase: TurnPhase.MAIN,
+        playerOrder: ["player1"],
+      },
+    });
+
+    expect(engine.playCard("player1", spell.id, "trash")).toBe(true);
+    expect(engine.getState().players.player1.trash).toEqual([spell]);
+    expect(engine.getState().zones.trash).toEqual([spell]);
+  });
+
+  it("does not play runes or battlefields as normal cards", () => {
+    const rune = createMockCard({ id: "normal-rune", kind: "rune", cost: 0 });
+    const battlefield = createMockCard({
+      id: "normal-battlefield",
+      kind: "battlefield",
+      cost: 0,
+    });
+    const engine = createMockEngine({
+      players: {
+        player1: createMockPlayer({ hand: [rune, battlefield] }),
+      },
+      turn: {
+        activePlayerId: "player1",
+        turnNumber: 1,
+        phase: TurnPhase.MAIN,
+        playerOrder: ["player1"],
+      },
+    });
+
+    expect(engine.canPlayCard("player1", rune.id, "channeledRunes")).toBe(false);
+    expect(engine.canPlayCard("player1", battlefield.id, "battlefield1")).toBe(false);
+    expect(engine.playCard("player1", rune.id, "channeledRunes")).toBe(false);
+    expect(engine.playCard("player1", battlefield.id, "battlefield1")).toBe(false);
   });
 
   it("moves a card between zones", () => {

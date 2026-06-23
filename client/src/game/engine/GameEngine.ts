@@ -41,6 +41,11 @@ export type DeckValidationResult = {
 
 export type GameSetupResult = DeckValidationResult;
 
+export type PlayCardValidationResult = {
+  ok: boolean;
+  errors: string[];
+};
+
 export class GameEngine {
   private state: GameState;
 
@@ -718,17 +723,109 @@ export class GameEngine {
     });
   }
 
-  playCard(playerId: string, cardInstanceId: string, zoneId: ZoneId) {
-    const moved = this.moveCardToZone(cardInstanceId, zoneId);
+  canPlayCard(playerId: string, cardInstanceId: string, targetZoneId: ZoneId) {
+    return this.validatePlayCard(playerId, cardInstanceId, targetZoneId).ok;
+  }
 
-    if (moved) {
-      this.emit({
-        type: "CardPlayed",
-        playerId,
-        cardInstanceId,
-        zoneId,
-      });
+  validatePlayCard(
+    playerId: string,
+    cardInstanceId: string,
+    targetZoneId: ZoneId,
+  ): PlayCardValidationResult {
+    const player = this.state.players[playerId];
+    const errors: string[] = [];
+    const card = player?.hand.find((handCard) => handCard.id === cardInstanceId);
+
+    // Core Rules 126 and 127-129: a player can only play cards they own from their private hand.
+    if (!player) {
+      errors.push("Unknown player.");
     }
+
+    if (!card) {
+      errors.push("Card must be in the player's hand.");
+    }
+
+    // Core Rules 300-316 and 346-356: normal card plays happen only for the active player during the action/main phase.
+    if (this.state.turn.activePlayerId !== playerId) {
+      errors.push("Only the active player can play cards.");
+    }
+
+    if (this.state.turn.phase !== TurnPhase.MAIN) {
+      errors.push("Cards can only be played during the main phase.");
+    }
+
+    if (card && player && player.runePool.available < this.getPlayCost(card)) {
+      errors.push("Not enough available runes to play this card.");
+    }
+
+    if (card && !this.isLegalPlayDestination(card, targetZoneId)) {
+      errors.push("Card cannot be played to the requested zone.");
+    }
+
+    return {
+      ok: errors.length === 0,
+      errors,
+    };
+  }
+
+  playCard(playerId: string, cardInstanceId: string, zoneId: ZoneId) {
+    const validation = this.validatePlayCard(playerId, cardInstanceId, zoneId);
+
+    if (!validation.ok) {
+      return false;
+    }
+
+    const player = this.state.players[playerId];
+    const card = player.hand.find((handCard) => handCard.id === cardInstanceId);
+
+    if (!card) {
+      return false;
+    }
+
+    const cost = this.getPlayCost(card);
+
+    if (cost > 0) {
+      this.spendRunes(playerId, cost);
+    }
+
+    const playerAfterPayment = this.state.players[playerId];
+    const nextHand = playerAfterPayment.hand.filter(
+      (handCard) => handCard.id !== cardInstanceId,
+    );
+    const nextZoneCards = [...this.state.zones[zoneId], card];
+
+    // Core Rules 346-356: a legal play pays costs, moves the card from hand, then the card resolves to its destination.
+    this.state = {
+      ...this.state,
+      hand: playerId === this.state.turn.activePlayerId ? nextHand : this.state.hand,
+      zones: {
+        ...this.state.zones,
+        [zoneId]: nextZoneCards,
+      },
+      players: {
+        ...this.state.players,
+        [playerId]: {
+          ...playerAfterPayment,
+          hand: nextHand,
+          trash: zoneId === "trash" ? [...playerAfterPayment.trash, card] : playerAfterPayment.trash,
+          base: zoneId === "base" ? [...playerAfterPayment.base, card] : playerAfterPayment.base,
+        },
+      },
+    };
+
+    this.emit({
+      type: "CardMoved",
+      cardInstanceId,
+      zoneId,
+    });
+    this.emit({
+      type: "CardPlayed",
+      playerId,
+      cardInstanceId,
+      zoneId,
+    });
+
+    return true;
   }
 
   moveCard(cardInstanceId: string, zoneId: DropZoneId) {
@@ -924,6 +1021,31 @@ export class GameEngine {
     }
 
     return player;
+  }
+
+  private getPlayCost(card: GameCard) {
+    // Core Rules 353-354: base cost is paid before a card is played.
+    // TODO(Core Rules 353-354): apply cost increases, discounts, alternate costs, and domain requirements once those systems exist.
+    return Math.max(0, card.cost);
+  }
+
+  private isLegalPlayDestination(card: GameCard, targetZoneId: ZoneId) {
+    switch (card.kind) {
+      case "unit":
+        // Core Rules 139-144 and 346-356: units are played to board locations.
+        return targetZoneId === "base" || targetZoneId === "battlefield1" || targetZoneId === "battlefield2";
+      case "spell":
+        // Core Rules 149-155: spells resolve and then go to owner trash. Spell effects are not implemented here.
+        return targetZoneId === "trash";
+      case "gear":
+        // Core Rules 145-148: gear enters base; TODO(Core Rules 421-422, 716-725): implement attachment rules separately.
+        return targetZoneId === "base";
+      case "rune":
+      case "battlefield":
+      case "champion":
+        // Core Rules 103-109 and 156-164: these cards are handled by setup/rune systems, not normal hand play.
+        return false;
+    }
   }
 
   private validatePlayerDeck(playerConfig: PlayerSetupConfig) {
