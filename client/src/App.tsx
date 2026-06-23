@@ -17,6 +17,7 @@ import {
   isDropZoneId,
   isZoneId,
   TurnPhase,
+  type DropZoneId,
   type GameState,
   type ZoneId,
 } from "./game/gameState";
@@ -97,6 +98,70 @@ function getCardZone(gameState: GameState, cardId: string): ZoneId | undefined {
   return (Object.keys(gameState.zones) as ZoneId[]).find((zoneId) =>
     gameState.zones[zoneId].some((card) => card.id === cardId),
   );
+}
+
+function getPlayableCardIds(engine: GameEngine, gameState: GameState) {
+  const player = gameState.players[UI_PLAYER_ID];
+
+  if (!player || gameState.game.gameOver) {
+    return [];
+  }
+
+  return player.hand
+    .filter((card) => {
+      if (card.kind === "rune") {
+        return true;
+      }
+
+      return (["battlefield1", "battlefield2", "base", "trash"] as ZoneId[]).some(
+        (zoneId) => engine.validatePlayCard(UI_PLAYER_ID, card.id, zoneId).ok,
+      );
+    })
+    .map((card) => card.id);
+}
+
+function getLegalDropZoneIds(
+  engine: GameEngine,
+  gameState: GameState,
+  cardId: string | null,
+): DropZoneId[] {
+  if (!cardId || gameState.game.gameOver) {
+    return [];
+  }
+
+  const player = gameState.players[UI_PLAYER_ID];
+  const cardInHand = player?.hand.find((card) => card.id === cardId);
+  const currentZoneId = getCardZone(gameState, cardId);
+  const visibleCard = findCard(gameState, cardId);
+  const legalDropZoneIds = new Set<DropZoneId>();
+
+  if (visibleCard) {
+    legalDropZoneIds.add("trash");
+  }
+
+  if (cardInHand?.kind === "rune") {
+    legalDropZoneIds.add("channeledRunes");
+  }
+
+  if (cardInHand && cardInHand.kind !== "rune") {
+    (["battlefield1", "battlefield2", "base", "trash"] as ZoneId[]).forEach(
+      (zoneId) => {
+        if (engine.validatePlayCard(UI_PLAYER_ID, cardId, zoneId).ok) {
+          legalDropZoneIds.add(zoneId);
+        }
+      },
+    );
+  }
+
+  if (currentZoneId && visibleCard?.kind === "unit") {
+    (["battlefield1", "battlefield2"] as ZoneId[]).forEach((zoneId) => {
+      if (engine.validateMoveUnit(UI_PLAYER_ID, cardId, zoneId).ok) {
+        legalDropZoneIds.add(zoneId);
+      }
+    });
+  }
+
+  return [...legalDropZoneIds];
 }
 
 function App() {
@@ -287,6 +352,29 @@ function App() {
   };
 
   const activeCard = activeCardId ? findCard(gameState, activeCardId) : undefined;
+  const activePlayer = gameState.players[gameState.turn.activePlayerId];
+  const playableCardIds = getPlayableCardIds(engineRef.current, gameState);
+  const legalDropZoneIds = getLegalDropZoneIds(
+    engineRef.current,
+    gameState,
+    activeCardId,
+  );
+  const controlState = {
+    canNextPhase:
+      !gameState.game.gameOver &&
+      !(
+        gameState.turn.phase === TurnPhase.MULLIGAN &&
+        !gameState.setup.mulliganComplete
+      ),
+    canEndTurn:
+      !gameState.game.gameOver &&
+      gameState.turn.phase !== TurnPhase.GAME_START &&
+      gameState.turn.phase !== TurnPhase.MULLIGAN &&
+      gameState.turn.phase !== TurnPhase.CHOOSE_FIRST_PLAYER,
+    canDrawRune: !gameState.game.gameOver && Boolean(activePlayer?.runeDeck.length),
+    canConfirmMulligan:
+      !gameState.game.gameOver && Boolean(gameState.setup.currentMulliganPlayerId),
+  };
 
   return (
     <DndContext
@@ -302,6 +390,9 @@ function App() {
         onEndTurn={handleEndTurn}
         onDrawRune={handleDrawRune}
         onConfirmMulligan={handleConfirmMulligan}
+        controlState={controlState}
+        playableCardIds={playableCardIds}
+        legalDropZoneIds={legalDropZoneIds}
       />
       <DragOverlay wrapperElement="div" className="drag-overlay">
         {activeCard ? (

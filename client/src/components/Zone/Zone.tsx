@@ -8,6 +8,7 @@ type ZoneProps = {
   className?: string;
   droppableId?: ZoneId;
   cards?: GameCard[];
+  isLegalDropZone?: boolean;
 };
 
 function MiniCard({ card }: { card: GameCard }) {
@@ -35,18 +36,32 @@ function DraggableZoneCard({ card }: { card: GameCard }) {
   );
 }
 
-function Zone({ title, className = "", droppableId, cards = [] }: ZoneProps) {
+function Zone({
+  title,
+  className = "",
+  droppableId,
+  cards = [],
+  isLegalDropZone = false,
+}: ZoneProps) {
   const { isOver, setNodeRef } = useDroppable({
     id: droppableId ?? `static-${title}`,
     disabled: !droppableId,
   });
 
+  const zoneClassName = [
+    "zone",
+    className,
+    cards.length > 0 ? "has-zone-cards" : "",
+    isLegalDropZone ? "is-legal-drop-zone" : "",
+    isOver ? "is-over" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
     <div
       ref={setNodeRef}
-      className={`zone ${className} ${cards.length > 0 ? "has-zone-cards" : ""} ${
-        isOver ? "is-over" : ""
-      }`}
+      className={zoneClassName}
     >
       <span className="zone-label">{title}</span>
       {cards.length > 0 && (

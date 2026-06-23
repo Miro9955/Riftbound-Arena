@@ -6,16 +6,19 @@ import GameCard from "../GameCard/GameCard";
 type HandProps = {
   cards: GameCardData[];
   isLoading: boolean;
+  playableCardIds?: string[];
 };
 
 function DraggableHandTrayCard({
   card,
   index,
   total,
+  isPlayable,
 }: {
   card: GameCardData;
   index: number;
   total: number;
+  isPlayable: boolean;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: card.id,
@@ -36,7 +39,7 @@ function DraggableHandTrayCard({
       ref={setNodeRef}
       className={`draggable-card draggable-card-hand hand-tray-card ${
         isDragging ? "is-dragging" : ""
-      }`}
+      } ${isPlayable ? "is-playable" : "is-not-playable"}`}
       style={style}
       {...listeners}
       {...attributes}
@@ -46,10 +49,11 @@ function DraggableHandTrayCard({
   );
 }
 
-function HandTray({ cards, isLoading }: HandProps) {
+function HandTray({ cards, isLoading, playableCardIds = [] }: HandProps) {
   const { isOver, setNodeRef } = useDroppable({
     id: "hand",
   });
+  const playableCardIdSet = new Set(playableCardIds);
 
   return (
     <div ref={setNodeRef} className={`hand hand-tray ${isOver ? "is-over" : ""}`}>
@@ -62,6 +66,7 @@ function HandTray({ cards, isLoading }: HandProps) {
             card={card}
             index={index}
             total={cards.length}
+            isPlayable={playableCardIdSet.has(card.id)}
           />
         ))
       )}

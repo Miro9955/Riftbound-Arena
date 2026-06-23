@@ -1,10 +1,18 @@
-import type { GameState } from "../../game/gameState";
+import type { DropZoneId, GameState } from "../../game/gameState";
 import PlayerPlaymat from "./PlayerPlaymat";
 
 type BoardProps = {
   gameState: GameState;
   isLoadingCards: boolean;
   statusMessage?: string | null;
+  controlState: {
+    canNextPhase: boolean;
+    canEndTurn: boolean;
+    canDrawRune: boolean;
+    canConfirmMulligan: boolean;
+  };
+  playableCardIds: string[];
+  legalDropZoneIds: DropZoneId[];
   onNextPhase: () => void;
   onEndTurn: () => void;
   onDrawRune: () => void;
@@ -15,6 +23,9 @@ function Board({
   gameState,
   isLoadingCards,
   statusMessage,
+  controlState,
+  playableCardIds,
+  legalDropZoneIds,
   onNextPhase,
   onEndTurn,
   onDrawRune,
@@ -28,17 +39,22 @@ function Board({
     : gameState.game.winningPlayerIds.length > 0
       ? `Winners: ${gameState.game.winningPlayerIds.join(", ")}`
       : "Game in progress";
+  const boardClassName = `board ${gameState.game.gameOver ? "is-game-over" : ""}`;
 
   return (
     <main className="game">
-      <section className="board">
+      <section className={boardClassName}>
         <PlayerPlaymat perspective="opponent" />
         <div className="mulligan-divider">
           <div className="divider-line" />
           <div className="engine-controls" aria-live="polite">
             <div className="engine-status">
-              <span>{gameState.turn.activePlayerId}</span>
-              <span>{gameState.turn.phase}</span>
+              <span className="engine-status-primary">
+                Active {gameState.turn.activePlayerId}
+              </span>
+              <span className="engine-status-primary">
+                Phase {gameState.turn.phase}
+              </span>
               <span>Score {score}</span>
               <span>
                 Runes {activePlayer?.runePool.available ?? 0}/
@@ -49,20 +65,39 @@ function Board({
               <span>{winnerText}</span>
             </div>
             <div className="engine-actions">
-              <button type="button" onClick={onNextPhase}>
+              <button
+                type="button"
+                onClick={onNextPhase}
+                disabled={!controlState.canNextPhase}
+              >
                 Next Phase
               </button>
-              <button type="button" onClick={onEndTurn}>
+              <button
+                type="button"
+                onClick={onEndTurn}
+                disabled={!controlState.canEndTurn}
+              >
                 End Turn
               </button>
-              <button type="button" onClick={onDrawRune}>
+              <button
+                type="button"
+                onClick={onDrawRune}
+                disabled={!controlState.canDrawRune}
+              >
                 Draw Rune
               </button>
-              <button type="button" onClick={onConfirmMulligan}>
+              <button
+                type="button"
+                onClick={onConfirmMulligan}
+                disabled={!controlState.canConfirmMulligan}
+              >
                 Confirm Mulligan
               </button>
             </div>
             {statusMessage && <p className="engine-message">{statusMessage}</p>}
+            {gameState.game.gameOver && (
+              <p className="game-over-message">{winnerText}</p>
+            )}
           </div>
           <div className="divider-line" />
         </div>
@@ -70,6 +105,8 @@ function Board({
           perspective="you"
           gameState={gameState}
           isLoadingCards={isLoadingCards}
+          playableCardIds={playableCardIds}
+          legalDropZoneIds={legalDropZoneIds}
         />
       </section>
     </main>

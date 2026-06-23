@@ -1,5 +1,5 @@
 import type { GameCard } from "../../data/cards";
-import type { GameState } from "../../game/gameState";
+import type { DropZoneId, GameState, ZoneId } from "../../game/gameState";
 import type { ReactNode } from "react";
 import HandTray from "../Hand/Hand";
 import Zone from "../Zone/Zone";
@@ -8,6 +8,8 @@ type PlayerPlaymatProps = {
   perspective: "opponent" | "you";
   gameState?: GameState;
   isLoadingCards?: boolean;
+  playableCardIds?: string[];
+  legalDropZoneIds?: DropZoneId[];
 };
 
 function SidePanel({ side, children }: { side: "status" | "cards"; children: ReactNode }) {
@@ -49,6 +51,8 @@ function PlayerPlaymat({
   perspective,
   gameState,
   isLoadingCards = false,
+  playableCardIds = [],
+  legalDropZoneIds = [],
 }: PlayerPlaymatProps) {
   const isOpponent = perspective === "opponent";
   const activeZones = !isOpponent && gameState;
@@ -60,6 +64,8 @@ function PlayerPlaymat({
       ? (gameState.scores[gameState.turn.activePlayerId] ?? 0)
       : 0;
   const handCards: GameCard[] = activeZones ? player?.hand ?? gameState.hand : [];
+  const isLegalDropZone = (zoneId: ZoneId) =>
+    legalDropZoneIds.includes(zoneId);
 
   const statusPanel = (
     <SidePanel side="status">
@@ -86,6 +92,7 @@ function PlayerPlaymat({
         className="side-zone side-card-zone"
         droppableId={activeZones ? "trash" : undefined}
         cards={activeZones ? gameState.zones.trash : undefined}
+        isLegalDropZone={isLegalDropZone("trash")}
       />
     </SidePanel>
   );
@@ -110,24 +117,28 @@ function PlayerPlaymat({
                 className="battlefield battlefield-zone"
                 droppableId={activeZones ? "battlefield1" : undefined}
                 cards={activeZones ? gameState.zones.battlefield1 : undefined}
+                isLegalDropZone={isLegalDropZone("battlefield1")}
               />
               <Zone
                 title="Battlefield 2"
                 className="battlefield battlefield-zone"
                 droppableId={activeZones ? "battlefield2" : undefined}
                 cards={activeZones ? gameState.zones.battlefield2 : undefined}
+                isLegalDropZone={isLegalDropZone("battlefield2")}
               />
               <Zone
                 title="Channeled Runes"
                 className="rune-zone channeled-zone resource-zone"
                 droppableId={activeZones ? "channeledRunes" : undefined}
                 cards={activeZones ? gameState.zones.channeledRunes : undefined}
+                isLegalDropZone={isLegalDropZone("channeledRunes")}
               />
               <Zone
                 title="Base"
                 className="base-zone resource-zone"
                 droppableId={activeZones ? "base" : undefined}
                 cards={activeZones ? gameState.zones.base : undefined}
+                isLegalDropZone={isLegalDropZone("base")}
               />
             </div>
 
@@ -139,7 +150,11 @@ function PlayerPlaymat({
 
       {!isOpponent && (
         <div className="playmat-hand">
-          <HandTray cards={handCards} isLoading={isLoadingCards} />
+          <HandTray
+            cards={handCards}
+            isLoading={isLoadingCards}
+            playableCardIds={playableCardIds}
+          />
         </div>
       )}
     </section>
