@@ -326,6 +326,7 @@ describe("Game setup rules", () => {
       completedMulliganPlayerIds: [],
       mulliganSetAsideCards: {},
       mulliganComplete: false,
+      startOfGameCompletedPlayerIds: [],
       validationErrors: [],
     });
     expect(engine.getState().players.player1.hand).toHaveLength(4);
@@ -557,6 +558,10 @@ describe("Game setup rules", () => {
       "player1",
     ]);
     expect(engine.getState().setup.mulliganComplete).toBe(true);
+    expect(engine.getState().setup.startOfGameCompletedPlayerIds).toEqual([
+      "player2",
+      "player1",
+    ]);
     expect(engine.getState().players.player1.hasMulliganed).toBe(true);
     expect(engine.getState().players.player2.hasMulliganed).toBe(true);
   });

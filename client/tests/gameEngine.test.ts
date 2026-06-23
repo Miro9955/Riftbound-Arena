@@ -274,11 +274,114 @@ describe("GameEngine", () => {
     expect(engine.getState().players.player2.actionsRemaining).toBe(1);
     expect(events).toEqual([
       {
+        type: "PhaseChanged",
+        phase: TurnPhase.END,
+        activePlayerId: "player1",
+        turnNumber: 1,
+      },
+      {
         type: "TurnEnded",
+        activePlayerId: "player1",
+        turnNumber: 1,
+      },
+      {
+        type: "PhaseChanged",
+        phase: TurnPhase.TURN_START,
+        activePlayerId: "player2",
+        turnNumber: 2,
+      },
+      {
+        type: "TurnStarted",
         activePlayerId: "player2",
         turnNumber: 2,
       },
     ]);
+  });
+
+  it("moves from mulligan complete into the first turn", () => {
+    const engine = createMockEngine({
+      players: {
+        player1: createMockPlayer({ hasDrawn: true, actionsRemaining: 0 }),
+        player2: createMockPlayer({ hasDrawn: true, actionsRemaining: 0 }),
+      },
+      turn: {
+        activePlayerId: "player2",
+        turnNumber: 1,
+        phase: TurnPhase.MULLIGAN,
+        playerOrder: ["player2", "player1"],
+      },
+      setup: {
+        status: "MULLIGAN_PENDING",
+        decksValidated: true,
+        firstPlayerId: "player2",
+        mulliganPlayerIds: ["player2", "player1"],
+        completedMulliganPlayerIds: ["player2", "player1"],
+        mulliganSetAsideCards: {},
+        mulliganComplete: true,
+        startOfGameCompletedPlayerIds: ["player2", "player1"],
+        validationErrors: [],
+      },
+    });
+    const { events } = collectGameEvents(engine);
+
+    engine.nextPhase();
+
+    expect(engine.getState().turn).toEqual({
+      activePlayerId: "player2",
+      turnNumber: 1,
+      phase: TurnPhase.TURN_START,
+      playerOrder: ["player2", "player1"],
+    });
+    expect(engine.getState().setup.status).toBe("COMPLETE");
+    expect(engine.getState().players.player2.hasDrawn).toBe(false);
+    expect(engine.getState().players.player2.actionsRemaining).toBe(1);
+    expect(events).toEqual([
+      {
+        type: "FirstPlayerChosen",
+        playerId: "player2",
+      },
+      {
+        type: "PhaseChanged",
+        phase: TurnPhase.TURN_START,
+        activePlayerId: "player2",
+        turnNumber: 1,
+      },
+      {
+        type: "TurnStarted",
+        activePlayerId: "player2",
+        turnNumber: 1,
+      },
+    ]);
+  });
+
+  it("selects the setup first player as the first active player", () => {
+    const engine = createMockEngine({
+      players: {
+        player1: createMockPlayer(),
+        player2: createMockPlayer(),
+      },
+      turn: {
+        activePlayerId: "player1",
+        turnNumber: 1,
+        phase: TurnPhase.MULLIGAN,
+        playerOrder: ["player2", "player1"],
+      },
+      setup: {
+        status: "MULLIGAN_PENDING",
+        decksValidated: true,
+        firstPlayerId: "player2",
+        mulliganPlayerIds: ["player2", "player1"],
+        completedMulliganPlayerIds: ["player2", "player1"],
+        mulliganSetAsideCards: {},
+        mulliganComplete: true,
+        startOfGameCompletedPlayerIds: ["player2", "player1"],
+        validationErrors: [],
+      },
+    });
+
+    engine.nextPhase();
+
+    expect(engine.getState().turn.activePlayerId).toBe("player2");
   });
 
   it("advances phases and draws during the draw phase", () => {
@@ -300,6 +403,7 @@ describe("GameEngine", () => {
 
     expect(engine.getState().turn.phase).toBe(TurnPhase.DRAW);
     expect(engine.getState().hand).toEqual([drawCard]);
+    expect(engine.getState().players.player1.hasDrawn).toBe(true);
     expect(events).toEqual([
       {
         type: "PhaseChanged",
@@ -313,6 +417,49 @@ describe("GameEngine", () => {
         card: drawCard,
       },
     ]);
+  });
+
+  it("does not draw twice when advancing out of the draw phase", () => {
+    const drawCard = createMockCard({ id: "phase-draw" });
+    const secondCard = createMockCard({ id: "second-card" });
+    const engine = createMockEngine({
+      players: {
+        player1: createMockPlayer({ deck: [drawCard, secondCard] }),
+      },
+      turn: {
+        activePlayerId: "player1",
+        turnNumber: 1,
+        phase: TurnPhase.TURN_START,
+        playerOrder: ["player1"],
+      },
+    });
+    const { events } = collectGameEvents(engine);
+
+    engine.nextPhase();
+    engine.nextPhase();
+
+    expect(engine.getState().turn.phase).toBe(TurnPhase.MAIN);
+    expect(engine.getState().hand).toEqual([drawCard]);
+    expect(engine.getState().players.player1.deck).toEqual([secondCard]);
+    expect(events.filter((event) => event.type === "CardDrawn")).toHaveLength(1);
+  });
+
+  it("moves to main phase after draw phase", () => {
+    const engine = createMockEngine({
+      players: {
+        player1: createMockPlayer({ hasDrawn: true }),
+      },
+      turn: {
+        activePlayerId: "player1",
+        turnNumber: 1,
+        phase: TurnPhase.DRAW,
+        playerOrder: ["player1"],
+      },
+    });
+
+    engine.nextPhase();
+
+    expect(engine.getState().turn.phase).toBe(TurnPhase.MAIN);
   });
 
   it("emits TurnEnded when advancing into the end phase", () => {
@@ -374,6 +521,33 @@ describe("GameEngine", () => {
         activePlayerId: "player1",
         turnNumber: 4,
       },
+      {
+        type: "TurnStarted",
+        activePlayerId: "player1",
+        turnNumber: 4,
+      },
     ]);
+  });
+
+  it("increments turn number and resets per-turn flags for the next active player", () => {
+    const engine = createMockEngine({
+      players: {
+        player1: createMockPlayer(),
+        player2: createMockPlayer({ hasDrawn: true, actionsRemaining: 0 }),
+      },
+      turn: {
+        activePlayerId: "player1",
+        turnNumber: 7,
+        phase: TurnPhase.END,
+        playerOrder: ["player1", "player2"],
+      },
+    });
+
+    engine.nextTurn();
+
+    expect(engine.getState().turn.turnNumber).toBe(8);
+    expect(engine.getState().turn.activePlayerId).toBe("player2");
+    expect(engine.getState().players.player2.hasDrawn).toBe(false);
+    expect(engine.getState().players.player2.actionsRemaining).toBe(1);
   });
 });

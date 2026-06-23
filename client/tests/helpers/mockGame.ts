@@ -68,6 +68,7 @@ export function createMockGame(overrides: Partial<GameState> = {}): GameState {
       completedMulliganPlayerIds: [],
       mulliganSetAsideCards: {},
       mulliganComplete: false,
+      startOfGameCompletedPlayerIds: [],
       validationErrors: [],
     },
   };

@@ -43,7 +43,8 @@ export type SetupStatus =
   | "NOT_STARTED"
   | "VALIDATING_DECKS"
   | "DRAWING_STARTING_HANDS"
-  | "MULLIGAN_PENDING";
+  | "MULLIGAN_PENDING"
+  | "COMPLETE";
 
 export type SetupState = {
   status: SetupStatus;
@@ -54,6 +55,7 @@ export type SetupState = {
   completedMulliganPlayerIds: string[];
   mulliganSetAsideCards: Record<string, GameCard[]>;
   mulliganComplete: boolean;
+  startOfGameCompletedPlayerIds: string[];
   validationErrors: DeckValidationError[];
 };
 
@@ -142,6 +144,7 @@ export function createInitialGameState(): GameState {
       completedMulliganPlayerIds: [],
       mulliganSetAsideCards: {},
       mulliganComplete: false,
+      startOfGameCompletedPlayerIds: [],
       validationErrors: [],
     },
   };

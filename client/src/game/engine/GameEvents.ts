@@ -31,11 +31,22 @@ export type TurnEnded = {
   turnNumber: number;
 };
 
+export type TurnStarted = {
+  type: "TurnStarted";
+  activePlayerId: string;
+  turnNumber: number;
+};
+
 export type PhaseChanged = {
   type: "PhaseChanged";
   phase: TurnPhase;
   activePlayerId: string;
   turnNumber: number;
+};
+
+export type FirstPlayerChosen = {
+  type: "FirstPlayerChosen";
+  playerId: string;
 };
 
 export type GameSetupStarted = {
@@ -100,7 +111,9 @@ export type GameEvent =
   | CardPlayed
   | CardDiscarded
   | TurnEnded
+  | TurnStarted
   | PhaseChanged
+  | FirstPlayerChosen
   | GameSetupStarted
   | DeckValidated
   | DeckRejected

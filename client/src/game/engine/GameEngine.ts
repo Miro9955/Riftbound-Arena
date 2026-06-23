@@ -217,6 +217,7 @@ export class GameEngine {
         completedMulliganPlayerIds: [],
         mulliganSetAsideCards: {},
         mulliganComplete: false,
+        startOfGameCompletedPlayerIds: [],
         validationErrors: [],
       },
     };
@@ -437,21 +438,28 @@ export class GameEngine {
       (playerId) => !completedPlayerIds.has(playerId),
     );
     const mulliganComplete = nextMulliganPlayerId === undefined;
+    const firstPlayerId =
+      this.state.setup.firstPlayerId ?? this.state.turn.playerOrder[0];
 
     this.state = {
       ...this.state,
-      hand: nextMulliganPlayerId
-        ? this.state.players[nextMulliganPlayerId]?.hand ?? []
-        : this.state.hand,
+      hand: mulliganComplete
+        ? this.state.players[firstPlayerId]?.hand ?? this.state.hand
+        : this.state.players[nextMulliganPlayerId]?.hand ?? [],
       turn: {
         ...this.state.turn,
-        activePlayerId: nextMulliganPlayerId ?? this.state.turn.activePlayerId,
+        activePlayerId: mulliganComplete
+          ? firstPlayerId
+          : nextMulliganPlayerId ?? this.state.turn.activePlayerId,
         phase: TurnPhase.MULLIGAN,
       },
       setup: {
         ...this.state.setup,
         currentMulliganPlayerId: nextMulliganPlayerId,
         mulliganComplete,
+        startOfGameCompletedPlayerIds: mulliganComplete
+          ? this.state.setup.mulliganPlayerIds
+          : this.state.setup.startOfGameCompletedPlayerIds,
       },
     };
   }
@@ -527,24 +535,62 @@ export class GameEngine {
   }
 
   endTurn() {
-    this.state = TurnManager.endTurn(this.state);
+    const endedTurn = this.state.turn;
+
+    if (endedTurn.phase !== TurnPhase.END) {
+      this.state = {
+        ...this.state,
+        turn: {
+          ...this.state.turn,
+          phase: TurnPhase.END,
+        },
+      };
+      this.emitPhaseChanged();
+    }
+
     this.emit({
       type: "TurnEnded",
-      activePlayerId: this.state.turn.activePlayerId,
-      turnNumber: this.state.turn.turnNumber,
+      activePlayerId: endedTurn.activePlayerId,
+      turnNumber: endedTurn.turnNumber,
     });
+
+    this.state = TurnManager.endTurn(this.state);
+    this.emitPhaseChanged();
+    this.emitTurnStarted();
   }
 
   nextPhase() {
+    const previousTurn = this.state.turn;
+
+    if (
+      previousTurn.phase === TurnPhase.MULLIGAN &&
+      !this.state.setup.mulliganComplete
+    ) {
+      throw new Error("Cannot start the first turn until all players complete mulligan.");
+    }
+
     const result = TurnController.nextPhase(this.state);
     this.state = result.state;
 
-    this.emit({
-      type: "PhaseChanged",
-      phase: this.state.turn.phase,
-      activePlayerId: this.state.turn.activePlayerId,
-      turnNumber: this.state.turn.turnNumber,
-    });
+    if (
+      previousTurn.phase === TurnPhase.MULLIGAN &&
+      this.state.turn.phase === TurnPhase.TURN_START
+    ) {
+      // Core Rules 115 and 300-306: the setup-selected first player starts the first turn after mulligans.
+      this.emit({
+        type: "FirstPlayerChosen",
+        playerId: this.state.turn.activePlayerId,
+      });
+    }
+
+    this.emitPhaseChanged();
+
+    if (
+      previousTurn.phase === TurnPhase.MULLIGAN ||
+      previousTurn.phase === TurnPhase.END
+    ) {
+      this.emitTurnStarted();
+    }
 
     if (result.drawnCard) {
       this.emit({
@@ -555,6 +601,7 @@ export class GameEngine {
     }
 
     if (this.state.turn.phase === "END") {
+      // Core Rules 317: the active player's turn ends during the end phase.
       this.emit({
         type: "TurnEnded",
         activePlayerId: this.state.turn.activePlayerId,
@@ -566,9 +613,23 @@ export class GameEngine {
   nextTurn() {
     this.state = TurnController.nextTurn(this.state);
 
+    this.emitPhaseChanged();
+    this.emitTurnStarted();
+  }
+
+  private emitPhaseChanged() {
     this.emit({
       type: "PhaseChanged",
       phase: this.state.turn.phase,
+      activePlayerId: this.state.turn.activePlayerId,
+      turnNumber: this.state.turn.turnNumber,
+    });
+  }
+
+  private emitTurnStarted() {
+    // Core Rules 300-306: each turn starts with the next active player in turn order.
+    this.emit({
+      type: "TurnStarted",
       activePlayerId: this.state.turn.activePlayerId,
       turnNumber: this.state.turn.turnNumber,
     });

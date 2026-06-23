@@ -7,7 +7,12 @@ export class TurnController {
   static nextPhase(state: GameState) {
     const nextState = TurnManager.nextPhase(state);
 
-    if (nextState.turn.phase === TurnPhase.DRAW) {
+    // Core Rules 315.4 and 400: the active player draws once when the draw phase begins.
+    if (
+      state.turn.phase !== TurnPhase.DRAW &&
+      nextState.turn.phase === TurnPhase.DRAW &&
+      !nextState.players[nextState.turn.activePlayerId]?.hasDrawn
+    ) {
       const drawResult = CardManager.drawFromDeck(
         nextState,
         nextState.turn.activePlayerId,
