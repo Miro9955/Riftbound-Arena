@@ -1,5 +1,10 @@
 import type { GameCard } from "../../data/cards";
-import type { DeckValidationError, TurnPhase, ZoneId } from "../gameState";
+import type {
+  BattlefieldId,
+  DeckValidationError,
+  TurnPhase,
+  ZoneId,
+} from "../gameState";
 
 export type CardDrawn = {
   type: "CardDrawn";
@@ -18,6 +23,21 @@ export type CardPlayed = {
   playerId: string;
   cardInstanceId: string;
   zoneId: ZoneId;
+};
+
+export type UnitMoved = {
+  type: "UnitMoved";
+  playerId: string;
+  cardInstanceId: string;
+  fromZoneId: ZoneId;
+  toZoneId: BattlefieldId;
+};
+
+export type BattlefieldControlChanged = {
+  type: "BattlefieldControlChanged";
+  battlefieldId: BattlefieldId;
+  previousControllerId?: string;
+  controllerId?: string;
 };
 
 export type CardDiscarded = {
@@ -138,6 +158,8 @@ export type GameEvent =
   | CardDrawn
   | CardMoved
   | CardPlayed
+  | UnitMoved
+  | BattlefieldControlChanged
   | CardDiscarded
   | TurnEnded
   | TurnStarted

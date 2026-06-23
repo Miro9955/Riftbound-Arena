@@ -92,6 +92,12 @@ describe("GameEngine", () => {
         cardInstanceId: card.id,
         zoneId: "battlefield1",
       },
+      {
+        type: "BattlefieldControlChanged",
+        battlefieldId: "battlefield1",
+        previousControllerId: undefined,
+        controllerId: "player1",
+      },
     ]);
   });
 
@@ -244,6 +250,12 @@ describe("GameEngine", () => {
         cardInstanceId: card.id,
         zoneId: "battlefield1",
       },
+      {
+        type: "BattlefieldControlChanged",
+        battlefieldId: "battlefield1",
+        previousControllerId: undefined,
+        controllerId: "player1",
+      },
     ]);
   });
 
@@ -290,6 +302,157 @@ describe("GameEngine", () => {
     expect(engine.canPlayCard("player1", battlefield.id, "battlefield1")).toBe(false);
     expect(engine.playCard("player1", rune.id, "channeledRunes")).toBe(false);
     expect(engine.playCard("player1", battlefield.id, "battlefield1")).toBe(false);
+  });
+
+  it("moves a unit to a legal battlefield", () => {
+    const unit = createMockCard({ id: "unit-move", kind: "unit" });
+    const engine = createMockEngine({
+      zones: createZoneState("base", [unit]),
+      players: {
+        player1: createMockPlayer({ base: [unit] }),
+      },
+      turn: {
+        activePlayerId: "player1",
+        turnNumber: 1,
+        phase: TurnPhase.MAIN,
+        playerOrder: ["player1"],
+      },
+    });
+
+    expect(engine.canMoveUnit("player1", unit.id, "battlefield1")).toBe(true);
+    expect(engine.moveUnit("player1", unit.id, "battlefield1")).toBe(true);
+
+    expect(engine.getState().zones.base).toEqual([]);
+    expect(engine.getState().players.player1.base).toEqual([]);
+    expect(engine.getState().zones.battlefield1).toEqual([unit]);
+    expect(engine.getUnitsAtBattlefield("battlefield1")).toEqual([unit]);
+  });
+
+  it("does not move a non-unit as a unit", () => {
+    const spell = createMockCard({ id: "spell-move", kind: "spell" });
+    const engine = createMockEngine({
+      zones: createZoneState("base", [spell]),
+      players: {
+        player1: createMockPlayer({ base: [spell] }),
+      },
+      turn: {
+        activePlayerId: "player1",
+        turnNumber: 1,
+        phase: TurnPhase.MAIN,
+        playerOrder: ["player1"],
+      },
+    });
+
+    expect(engine.validateMoveUnit("player1", spell.id, "battlefield1").errors).toContain(
+      "Only unit cards can move as units.",
+    );
+    expect(engine.moveUnit("player1", spell.id, "battlefield1")).toBe(false);
+    expect(engine.getState().zones.base).toEqual([spell]);
+  });
+
+  it("does not move an opponent unit", () => {
+    const unit = createMockCard({ id: "opponent-unit", kind: "unit" });
+    const engine = createMockEngine({
+      zones: createZoneState("base", [unit]),
+      players: {
+        player1: createMockPlayer(),
+        player2: createMockPlayer({ base: [unit] }),
+      },
+      turn: {
+        activePlayerId: "player1",
+        turnNumber: 1,
+        phase: TurnPhase.MAIN,
+        playerOrder: ["player1", "player2"],
+      },
+    });
+
+    expect(engine.validateMoveUnit("player1", unit.id, "battlefield1").errors).toContain(
+      "Unit must be controlled by the player.",
+    );
+    expect(engine.moveUnit("player1", unit.id, "battlefield1")).toBe(false);
+  });
+
+  it("does not move a unit to an illegal zone", () => {
+    const unit = createMockCard({ id: "illegal-zone-unit", kind: "unit" });
+    const engine = createMockEngine({
+      zones: createZoneState("base", [unit]),
+      players: {
+        player1: createMockPlayer({ base: [unit] }),
+      },
+      turn: {
+        activePlayerId: "player1",
+        turnNumber: 1,
+        phase: TurnPhase.MAIN,
+        playerOrder: ["player1"],
+      },
+    });
+
+    expect(engine.validateMoveUnit("player1", unit.id, "trash").errors).toContain(
+      "Units can only move to battlefield zones.",
+    );
+    expect(engine.moveUnit("player1", unit.id, "trash")).toBe(false);
+  });
+
+  it("emits UnitMoved and updates battlefield control after unit movement", () => {
+    const unit = createMockCard({ id: "control-unit", kind: "unit" });
+    const engine = createMockEngine({
+      zones: createZoneState("base", [unit]),
+      players: {
+        player1: createMockPlayer({ base: [unit] }),
+      },
+      turn: {
+        activePlayerId: "player1",
+        turnNumber: 1,
+        phase: TurnPhase.MAIN,
+        playerOrder: ["player1"],
+      },
+    });
+    const { events } = collectGameEvents(engine);
+
+    engine.moveUnit("player1", unit.id, "battlefield1");
+
+    expect(engine.getBattlefieldController("battlefield1")).toBe("player1");
+    expect(events).toEqual([
+      {
+        type: "UnitMoved",
+        playerId: "player1",
+        cardInstanceId: unit.id,
+        fromZoneId: "base",
+        toZoneId: "battlefield1",
+      },
+      {
+        type: "BattlefieldControlChanged",
+        battlefieldId: "battlefield1",
+        previousControllerId: undefined,
+        controllerId: "player1",
+      },
+    ]);
+  });
+
+  it("emits BattlefieldControlChanged only when controller changes", () => {
+    const firstUnit = createMockCard({ id: "first-control-unit", kind: "unit" });
+    const secondUnit = createMockCard({ id: "second-control-unit", kind: "unit" });
+    const engine = createMockEngine({
+      zones: createZoneState("base", [firstUnit, secondUnit]),
+      players: {
+        player1: createMockPlayer({ base: [firstUnit, secondUnit] }),
+      },
+      turn: {
+        activePlayerId: "player1",
+        turnNumber: 1,
+        phase: TurnPhase.MAIN,
+        playerOrder: ["player1"],
+      },
+    });
+    const { events } = collectGameEvents(engine);
+
+    engine.moveUnit("player1", firstUnit.id, "battlefield1");
+    engine.moveUnit("player1", secondUnit.id, "battlefield1");
+
+    expect(
+      events.filter((event) => event.type === "BattlefieldControlChanged"),
+    ).toHaveLength(1);
+    expect(engine.getBattlefieldController("battlefield1")).toBe("player1");
   });
 
   it("moves a card between zones", () => {

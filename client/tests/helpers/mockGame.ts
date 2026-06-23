@@ -2,7 +2,7 @@ import type { GameCard } from "../../src/data/cards";
 import type { GameEvent, GameEventListener } from "../../src/game/engine/GameEvents";
 import { GameEngine } from "../../src/game/engine/GameEngine";
 import type { GameState, PlayerState, ZoneId } from "../../src/game/gameState";
-import { emptyZones, TurnPhase } from "../../src/game/gameState";
+import { emptyBattlefields, emptyZones, TurnPhase } from "../../src/game/gameState";
 
 export function createMockCard(overrides: Partial<GameCard> = {}): GameCard {
   return {
@@ -57,6 +57,10 @@ export function createMockGame(overrides: Partial<GameState> = {}): GameState {
     zones: {
       ...emptyZones(),
       ...overrides.zones,
+    },
+    battlefields: {
+      ...emptyBattlefields(),
+      ...overrides.battlefields,
     },
     players: overrides.players ?? {
       player1: createMockPlayer(),

@@ -8,13 +8,20 @@ export type ZoneId =
   | "channeledRunes";
 
 export type DropZoneId = ZoneId | "hand";
+export type BattlefieldId = Extract<ZoneId, "battlefield1" | "battlefield2">;
 
 export type GameState = {
   hand: GameCard[];
   zones: Record<ZoneId, GameCard[]>;
+  battlefields: Record<BattlefieldId, BattlefieldState>;
   players: Record<string, PlayerState>;
   turn: TurnState;
   setup: SetupState;
+};
+
+export type BattlefieldState = {
+  controllerId?: string;
+  unitControllers: Record<string, string>;
 };
 
 export type PlayerState = {
@@ -101,6 +108,11 @@ export const droppableZoneIds = new Set<ZoneId>([
   "channeledRunes",
 ]);
 
+export const battlefieldZoneIds = new Set<BattlefieldId>([
+  "battlefield1",
+  "battlefield2",
+]);
+
 export const droppableTargetIds = new Set<DropZoneId>([
   ...droppableZoneIds,
   "hand",
@@ -116,10 +128,22 @@ export function emptyZones(): Record<ZoneId, GameCard[]> {
   };
 }
 
+export function emptyBattlefields(): Record<BattlefieldId, BattlefieldState> {
+  return {
+    battlefield1: {
+      unitControllers: {},
+    },
+    battlefield2: {
+      unitControllers: {},
+    },
+  };
+}
+
 export function createInitialGameState(): GameState {
   return {
     hand: [],
     zones: emptyZones(),
+    battlefields: emptyBattlefields(),
     players: {
       player1: {
         deck: [],
@@ -170,6 +194,10 @@ export function isDropZoneId(value: string): value is DropZoneId {
 
 export function isZoneId(value: string): value is ZoneId {
   return droppableZoneIds.has(value as ZoneId);
+}
+
+export function isBattlefieldId(value: string): value is BattlefieldId {
+  return battlefieldZoneIds.has(value as BattlefieldId);
 }
 
 export function removeCardFromState(state: GameState, cardId: string): GameState {

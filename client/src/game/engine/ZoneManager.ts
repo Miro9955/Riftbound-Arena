@@ -1,6 +1,6 @@
 import type { GameCard } from "../../data/cards";
 import type { GameState, ZoneId } from "../gameState";
-import { emptyZones } from "../gameState";
+import { emptyBattlefields, emptyZones } from "../gameState";
 
 export class ZoneManager {
   static removeCard(state: GameState, cardInstanceId: string): GameState {
@@ -42,5 +42,9 @@ export class ZoneManager {
 
   static createEmptyZones() {
     return emptyZones();
+  }
+
+  static createEmptyBattlefields() {
+    return emptyBattlefields();
   }
 }

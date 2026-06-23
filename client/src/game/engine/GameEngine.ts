@@ -1,13 +1,20 @@
 import type { GameCard } from "../../data/cards";
 import type { AbilityEngine } from "../abilities/AbilityEngine";
 import type {
+  BattlefieldId,
   DeckValidationError,
   DropZoneId,
   GameState,
   PlayerState,
   ZoneId,
 } from "../gameState";
-import { createInitialGameState, emptyZones, TurnPhase } from "../gameState";
+import {
+  createInitialGameState,
+  emptyBattlefields,
+  emptyZones,
+  isBattlefieldId,
+  TurnPhase,
+} from "../gameState";
 import { CardManager } from "./CardManager";
 import type { GameEvent, GameEventListener } from "./GameEvents";
 import { TurnController } from "./TurnController";
@@ -46,6 +53,11 @@ export type PlayCardValidationResult = {
   errors: string[];
 };
 
+export type MoveUnitValidationResult = {
+  ok: boolean;
+  errors: string[];
+};
+
 export class GameEngine {
   private state: GameState;
 
@@ -78,6 +90,7 @@ export class GameEngine {
       ...this.state,
       hand: cards,
       zones: ZoneManager.createEmptyZones(),
+      battlefields: ZoneManager.createEmptyBattlefields(),
     };
   }
 
@@ -212,6 +225,7 @@ export class GameEngine {
     this.state = {
       hand: players[firstPlayerId]?.hand ?? [],
       zones: emptyZones(),
+      battlefields: emptyBattlefields(),
       players,
       turn: {
         activePlayerId: firstPlayerId,
@@ -793,6 +807,21 @@ export class GameEngine {
       (handCard) => handCard.id !== cardInstanceId,
     );
     const nextZoneCards = [...this.state.zones[zoneId], card];
+    const battlefields = isBattlefieldId(zoneId)
+      ? {
+          ...this.state.battlefields,
+          [zoneId]: {
+            ...this.state.battlefields[zoneId],
+            unitControllers:
+              card.kind === "unit"
+                ? {
+                    ...this.state.battlefields[zoneId].unitControllers,
+                    [card.id]: playerId,
+                  }
+                : this.state.battlefields[zoneId].unitControllers,
+          },
+        }
+      : this.state.battlefields;
 
     // Core Rules 346-356: a legal play pays costs, moves the card from hand, then the card resolves to its destination.
     this.state = {
@@ -802,13 +831,20 @@ export class GameEngine {
         ...this.state.zones,
         [zoneId]: nextZoneCards,
       },
+      battlefields,
       players: {
         ...this.state.players,
         [playerId]: {
           ...playerAfterPayment,
           hand: nextHand,
-          trash: zoneId === "trash" ? [...playerAfterPayment.trash, card] : playerAfterPayment.trash,
-          base: zoneId === "base" ? [...playerAfterPayment.base, card] : playerAfterPayment.base,
+          trash:
+            zoneId === "trash"
+              ? [...playerAfterPayment.trash, card]
+              : playerAfterPayment.trash,
+          base:
+            zoneId === "base"
+              ? [...playerAfterPayment.base, card]
+              : playerAfterPayment.base,
         },
       },
     };
@@ -825,7 +861,185 @@ export class GameEngine {
       zoneId,
     });
 
+    if (isBattlefieldId(zoneId)) {
+      this.updateBattlefieldControl(zoneId);
+    }
+
     return true;
+  }
+
+  canMoveUnit(playerId: string, cardInstanceId: string, targetZoneId: ZoneId) {
+    return this.validateMoveUnit(playerId, cardInstanceId, targetZoneId).ok;
+  }
+
+  validateMoveUnit(
+    playerId: string,
+    cardInstanceId: string,
+    targetZoneId: ZoneId,
+  ): MoveUnitValidationResult {
+    const player = this.state.players[playerId];
+    const card = this.findControlledUnit(playerId, cardInstanceId);
+    const errors: string[] = [];
+
+    if (!player) {
+      errors.push("Unknown player.");
+    }
+
+    // Core Rules 139-144: only unit cards can use standard unit movement.
+    if (!card) {
+      errors.push("Unit must be controlled by the player.");
+    } else if (card.kind !== "unit") {
+      errors.push("Only unit cards can move as units.");
+    }
+
+    // Core Rules 407 and 423-436: standard move destinations are battlefield locations.
+    if (!isBattlefieldId(targetZoneId)) {
+      errors.push("Units can only move to battlefield zones.");
+    }
+
+    // Core Rules 300-316 and 407: standard movement is an action-phase/main-phase game action.
+    if (this.state.turn.activePlayerId !== playerId) {
+      errors.push("Only the active player can move units.");
+    }
+
+    if (this.state.turn.phase !== TurnPhase.MAIN) {
+      errors.push("Units can only move during the main phase.");
+    }
+
+    // TODO(Core Rules 401-402, 423-436): enforce exhausted/stunned/move-restricted unit state once unit status is tracked.
+    return {
+      ok: errors.length === 0,
+      errors,
+    };
+  }
+
+  moveUnit(playerId: string, cardInstanceId: string, targetZoneId: ZoneId) {
+    const validation = this.validateMoveUnit(playerId, cardInstanceId, targetZoneId);
+
+    if (!validation.ok || !isBattlefieldId(targetZoneId)) {
+      return false;
+    }
+
+    const card = this.findControlledUnit(playerId, cardInstanceId);
+    const fromZoneId = this.findUnitZone(cardInstanceId);
+
+    if (!card || !fromZoneId) {
+      return false;
+    }
+
+    const sourceBattlefieldId = isBattlefieldId(fromZoneId) ? fromZoneId : undefined;
+    const nextZones = {
+      ...this.state.zones,
+      [fromZoneId]: this.state.zones[fromZoneId].filter(
+        (zoneCard) => zoneCard.id !== cardInstanceId,
+      ),
+      [targetZoneId]: [
+        ...this.state.zones[targetZoneId].filter(
+          (zoneCard) => zoneCard.id !== cardInstanceId,
+        ),
+        card,
+      ],
+    };
+    const nextBattlefields = {
+      ...this.state.battlefields,
+      [targetZoneId]: {
+        ...this.state.battlefields[targetZoneId],
+        unitControllers: {
+          ...this.state.battlefields[targetZoneId].unitControllers,
+          [cardInstanceId]: playerId,
+        },
+      },
+    };
+
+    if (sourceBattlefieldId) {
+      const { [cardInstanceId]: _removed, ...unitControllers } =
+        nextBattlefields[sourceBattlefieldId].unitControllers;
+
+      nextBattlefields[sourceBattlefieldId] = {
+        ...nextBattlefields[sourceBattlefieldId],
+        unitControllers,
+      };
+    }
+
+    // Core Rules 407 and 423-436: moving a unit changes its board location immediately.
+    this.state = {
+      ...this.state,
+      zones: nextZones,
+      battlefields: nextBattlefields,
+      players: {
+        ...this.state.players,
+        [playerId]: {
+          ...this.state.players[playerId],
+          base:
+            fromZoneId === "base"
+              ? this.state.players[playerId].base.filter(
+                  (baseCard) => baseCard.id !== cardInstanceId,
+                )
+              : this.state.players[playerId].base,
+        },
+      },
+    };
+
+    this.emit({
+      type: "UnitMoved",
+      playerId,
+      cardInstanceId,
+      fromZoneId,
+      toZoneId: targetZoneId,
+    });
+
+    if (sourceBattlefieldId) {
+      this.updateBattlefieldControl(sourceBattlefieldId);
+    }
+
+    this.updateBattlefieldControl(targetZoneId);
+
+    return true;
+  }
+
+  getUnitsAtBattlefield(battlefieldId: BattlefieldId) {
+    return this.state.zones[battlefieldId].filter((card) => card.kind === "unit");
+  }
+
+  getBattlefieldController(battlefieldId: BattlefieldId) {
+    return this.state.battlefields[battlefieldId].controllerId;
+  }
+
+  updateBattlefieldControl(battlefieldId: BattlefieldId) {
+    const previousControllerId = this.state.battlefields[battlefieldId].controllerId;
+    const controllerIds = new Set(
+      this.getUnitsAtBattlefield(battlefieldId)
+        .map((unit) => this.state.battlefields[battlefieldId].unitControllers[unit.id])
+        .filter((controllerId): controllerId is string => Boolean(controllerId)),
+    );
+    // Core Rules 165-183 and 423-431: this foundation treats an uncontested battlefield with one player's units as controlled by that player.
+    // TODO(Core Rules 165-183, 437-444): replace the contested/no-controller fallback with full combat/showdown control establishment.
+    const controllerId =
+      controllerIds.size === 1 ? [...controllerIds][0] : undefined;
+
+    if (previousControllerId === controllerId) {
+      return controllerId;
+    }
+
+    this.state = {
+      ...this.state,
+      battlefields: {
+        ...this.state.battlefields,
+        [battlefieldId]: {
+          ...this.state.battlefields[battlefieldId],
+          controllerId,
+        },
+      },
+    };
+
+    this.emit({
+      type: "BattlefieldControlChanged",
+      battlefieldId,
+      previousControllerId,
+      controllerId,
+    });
+
+    return controllerId;
   }
 
   moveCard(cardInstanceId: string, zoneId: DropZoneId) {
@@ -1021,6 +1235,57 @@ export class GameEngine {
     }
 
     return player;
+  }
+
+  private findControlledUnit(playerId: string, cardInstanceId: string) {
+    const player = this.state.players[playerId];
+
+    if (!player) {
+      return undefined;
+    }
+
+    const baseUnit = player.base.find((card) => card.id === cardInstanceId);
+
+    if (baseUnit) {
+      return baseUnit;
+    }
+
+    for (const battlefieldId of Object.keys(
+      this.state.battlefields,
+    ) as BattlefieldId[]) {
+      if (
+        this.state.battlefields[battlefieldId].unitControllers[cardInstanceId] ===
+        playerId
+      ) {
+        return this.state.zones[battlefieldId].find(
+          (card) => card.id === cardInstanceId,
+        );
+      }
+    }
+
+    return undefined;
+  }
+
+  private findUnitZone(cardInstanceId: string): ZoneId | undefined {
+    const baseCard = this.state.zones.base.find((card) => card.id === cardInstanceId);
+
+    if (baseCard) {
+      return "base";
+    }
+
+    for (const battlefieldId of Object.keys(
+      this.state.battlefields,
+    ) as BattlefieldId[]) {
+      if (
+        this.state.zones[battlefieldId].some(
+          (card) => card.id === cardInstanceId,
+        )
+      ) {
+        return battlefieldId;
+      }
+    }
+
+    return undefined;
   }
 
   private getPlayCost(card: GameCard) {
