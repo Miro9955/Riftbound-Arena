@@ -20,6 +20,8 @@ export class CardManager {
       ...state,
       unitDamage: state.unitDamage,
       exhaustedUnitIds: state.exhaustedUnitIds,
+      scores: state.scores,
+      game: state.game,
       players: {
         ...state.players,
         [playerId]: {

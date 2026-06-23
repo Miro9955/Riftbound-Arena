@@ -455,6 +455,157 @@ describe("GameEngine", () => {
     expect(engine.getBattlefieldController("battlefield1")).toBe("player1");
   });
 
+  it("starts player score at 0", () => {
+    const engine = createMockEngine();
+
+    expect(engine.getPlayerScore("player1")).toBe(0);
+  });
+
+  it("adds score and emits ScoreChanged", () => {
+    const engine = createMockEngine();
+    const { events } = collectGameEvents(engine);
+
+    const score = engine.addScore("player1", 2, "test-score");
+
+    expect(score).toBe(2);
+    expect(engine.getPlayerScore("player1")).toBe(2);
+    expect(events).toEqual([
+      {
+        type: "ScoreChanged",
+        playerId: "player1",
+        score: 2,
+        amount: 2,
+        reason: "test-score",
+      },
+    ]);
+  });
+
+  it("does not achieve victory below threshold", () => {
+    const engine = createMockEngine({
+      scores: {
+        player1: 7,
+      },
+      game: {
+        gameOver: false,
+        winningPlayerIds: [],
+        victoryScore: 8,
+      },
+    });
+
+    expect(engine.checkVictory()).toBe(false);
+    expect(engine.getState().game.gameOver).toBe(false);
+  });
+
+  it("achieves victory at threshold and ends the game", () => {
+    const engine = createMockEngine({
+      scores: {
+        player1: 7,
+      },
+      game: {
+        gameOver: false,
+        winningPlayerIds: [],
+        victoryScore: 8,
+      },
+    });
+    const { events } = collectGameEvents(engine);
+
+    engine.addScore("player1", 1, "threshold");
+
+    expect(engine.getState().game).toEqual({
+      gameOver: true,
+      winnerId: "player1",
+      winningPlayerIds: ["player1"],
+      victoryScore: 8,
+    });
+    expect(events).toEqual([
+      {
+        type: "ScoreChanged",
+        playerId: "player1",
+        score: 8,
+        amount: 1,
+        reason: "threshold",
+      },
+      {
+        type: "VictoryAchieved",
+        winnerId: "player1",
+        winningPlayerIds: ["player1"],
+      },
+      {
+        type: "GameEnded",
+        winnerId: "player1",
+        winningPlayerIds: ["player1"],
+      },
+    ]);
+  });
+
+  it("emits GameEnded when endGame is called", () => {
+    const engine = createMockEngine();
+    const { events } = collectGameEvents(engine);
+
+    engine.endGame("player1");
+
+    expect(engine.getState().game.gameOver).toBe(true);
+    expect(events).toEqual([
+      {
+        type: "VictoryAchieved",
+        winnerId: "player1",
+        winningPlayerIds: ["player1"],
+      },
+      {
+        type: "GameEnded",
+        winnerId: "player1",
+        winningPlayerIds: ["player1"],
+      },
+    ]);
+  });
+
+  it("scores controlled battlefields", () => {
+    const engine = createMockEngine({
+      players: {
+        player1: createMockPlayer(),
+        player2: createMockPlayer(),
+      },
+      scores: {
+        player1: 0,
+        player2: 0,
+      },
+      battlefields: {
+        battlefield1: {
+          controllerId: "player1",
+          unitControllers: {},
+        },
+        battlefield2: {
+          controllerId: "player2",
+          unitControllers: {},
+        },
+      },
+    });
+    const { events } = collectGameEvents(engine);
+
+    expect(engine.scoreBattlefieldControl()).toEqual([
+      "battlefield1",
+      "battlefield2",
+    ]);
+    expect(engine.getPlayerScore("player1")).toBe(1);
+    expect(engine.getPlayerScore("player2")).toBe(1);
+    expect(events).toEqual([
+      {
+        type: "ScoreChanged",
+        playerId: "player1",
+        score: 1,
+        amount: 1,
+        reason: "battlefield-control:battlefield1",
+      },
+      {
+        type: "ScoreChanged",
+        playerId: "player2",
+        score: 1,
+        amount: 1,
+        reason: "battlefield-control:battlefield2",
+      },
+    ]);
+  });
+
   it("declares a legal attack and exhausts the attacker", () => {
     const attacker = createMockCard({ id: "legal-attacker", kind: "unit" });
     const engine = createMockEngine({

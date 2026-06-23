@@ -25,6 +25,7 @@ const MAIN_DECK_MINIMUM_SIZE = 40;
 const RUNE_DECK_SIZE = 12;
 const STARTING_HAND_SIZE = 4;
 const DEFAULT_MAIN_DECK_COPY_LIMIT = 3;
+const DEFAULT_VICTORY_SCORE = 8;
 
 export type PlayerSetupConfig = {
   playerId: string;
@@ -98,6 +99,8 @@ export class GameEngine {
       battlefields: ZoneManager.createEmptyBattlefields(),
       unitDamage: {},
       exhaustedUnitIds: [],
+      scores: this.state.scores,
+      game: this.state.game,
     };
   }
 
@@ -235,6 +238,12 @@ export class GameEngine {
       battlefields: emptyBattlefields(),
       unitDamage: {},
       exhaustedUnitIds: [],
+      scores: Object.fromEntries(playerOrder.map((playerId) => [playerId, 0])),
+      game: {
+        gameOver: false,
+        winningPlayerIds: [],
+        victoryScore: DEFAULT_VICTORY_SCORE,
+      },
       players,
       turn: {
         activePlayerId: firstPlayerId,
@@ -1049,6 +1058,102 @@ export class GameEngine {
     });
 
     return controllerId;
+  }
+
+  getPlayerScore(playerId: string) {
+    return this.state.scores[playerId] ?? 0;
+  }
+
+  addScore(playerId: string, amount: number, reason: string) {
+    if (!this.state.players[playerId] || this.state.game.gameOver) {
+      return this.getPlayerScore(playerId);
+    }
+
+    const score = this.getPlayerScore(playerId) + amount;
+
+    // Core Rules 445-449: scoring awards points to the player, then victory is checked.
+    this.state = {
+      ...this.state,
+      scores: {
+        ...this.state.scores,
+        [playerId]: score,
+      },
+    };
+
+    this.emit({
+      type: "ScoreChanged",
+      playerId,
+      score,
+      amount,
+      reason,
+    });
+    this.checkVictory();
+
+    return score;
+  }
+
+  checkVictory() {
+    const winnerId = Object.entries(this.state.scores).find(
+      ([, score]) => score >= this.state.game.victoryScore,
+    )?.[0];
+
+    if (!winnerId) {
+      return false;
+    }
+
+    this.endGame(winnerId);
+    return true;
+  }
+
+  endGame(winnerId: string | string[]) {
+    if (this.state.game.gameOver) {
+      return;
+    }
+
+    const winningPlayerIds = Array.isArray(winnerId) ? winnerId : [winnerId];
+    const primaryWinnerId = winningPlayerIds[0];
+
+    // Core Rules 445-449 and 460.3: reaching the victory score ends the game for the winning player/team.
+    // TODO(Core Rules 458-466): expand this to mode/team victory scores and final-point restrictions.
+    this.state = {
+      ...this.state,
+      game: {
+        ...this.state.game,
+        gameOver: true,
+        winnerId: primaryWinnerId,
+        winningPlayerIds,
+      },
+    };
+
+    this.emit({
+      type: "VictoryAchieved",
+      winnerId: primaryWinnerId,
+      winningPlayerIds,
+    });
+    this.emit({
+      type: "GameEnded",
+      winnerId: primaryWinnerId,
+      winningPlayerIds,
+    });
+  }
+
+  scoreBattlefieldControl() {
+    const scoredBattlefields: BattlefieldId[] = [];
+
+    // Core Rules 445-449: a player scores for controlled battlefields at score timing.
+    // TODO(Core Rules 315.2.b, 445-449): enforce once-per-battlefield-per-turn, hold/conquer distinctions, and final-point restrictions.
+    for (const battlefieldId of Object.keys(
+      this.state.battlefields,
+    ) as BattlefieldId[]) {
+      const controllerId = this.getBattlefieldController(battlefieldId);
+
+      if (controllerId) {
+        this.addScore(controllerId, 1, `battlefield-control:${battlefieldId}`);
+        scoredBattlefields.push(battlefieldId);
+      }
+    }
+
+    return scoredBattlefields;
   }
 
   canAttack(

@@ -64,6 +64,14 @@ export function createMockGame(overrides: Partial<GameState> = {}): GameState {
     },
     unitDamage: overrides.unitDamage ?? {},
     exhaustedUnitIds: overrides.exhaustedUnitIds ?? [],
+    scores: overrides.scores ?? {
+      player1: 0,
+    },
+    game: overrides.game ?? {
+      gameOver: false,
+      winningPlayerIds: [],
+      victoryScore: 8,
+    },
     players: overrides.players ?? {
       player1: createMockPlayer(),
     },

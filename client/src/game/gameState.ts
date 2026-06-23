@@ -16,9 +16,18 @@ export type GameState = {
   battlefields: Record<BattlefieldId, BattlefieldState>;
   unitDamage: Record<string, number>;
   exhaustedUnitIds: string[];
+  scores: Record<string, number>;
+  game: GameResultState;
   players: Record<string, PlayerState>;
   turn: TurnState;
   setup: SetupState;
+};
+
+export type GameResultState = {
+  gameOver: boolean;
+  winnerId?: string;
+  winningPlayerIds: string[];
+  victoryScore: number;
 };
 
 export type BattlefieldState = {
@@ -148,6 +157,14 @@ export function createInitialGameState(): GameState {
     battlefields: emptyBattlefields(),
     unitDamage: {},
     exhaustedUnitIds: [],
+    scores: {
+      player1: 0,
+    },
+    game: {
+      gameOver: false,
+      winningPlayerIds: [],
+      victoryScore: 8,
+    },
     players: {
       player1: {
         deck: [],

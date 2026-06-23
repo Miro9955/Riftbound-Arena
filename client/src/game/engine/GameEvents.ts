@@ -66,6 +66,26 @@ export type UnitExhausted = {
   playerId: string;
 };
 
+export type ScoreChanged = {
+  type: "ScoreChanged";
+  playerId: string;
+  score: number;
+  amount: number;
+  reason: string;
+};
+
+export type VictoryAchieved = {
+  type: "VictoryAchieved";
+  winnerId: string;
+  winningPlayerIds: string[];
+};
+
+export type GameEnded = {
+  type: "GameEnded";
+  winnerId: string;
+  winningPlayerIds: string[];
+};
+
 export type CardDiscarded = {
   type: "CardDiscarded";
   cardInstanceId: string;
@@ -190,6 +210,9 @@ export type GameEvent =
   | DamageDealt
   | UnitDestroyed
   | UnitExhausted
+  | ScoreChanged
+  | VictoryAchieved
+  | GameEnded
   | CardDiscarded
   | TurnEnded
   | TurnStarted
